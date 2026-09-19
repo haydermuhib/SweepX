@@ -153,11 +153,17 @@ impl CleanModal {
                             .min_size(egui::Vec2::new(220.0_f32, 32.0_f32)),
                         );
 
+                        let btn = btn.on_hover_cursor(egui::CursorIcon::PointingHand);
+
                         if btn.clicked() {
                             *on_confirm_purge = true;
                         }
 
-                        if ui.button("Cancel").clicked() {
+                        if ui
+                            .button("Cancel")
+                            .on_hover_cursor(egui::CursorIcon::PointingHand)
+                            .clicked()
+                        {
                             close_requested = true;
                         }
                     });

@@ -51,7 +51,11 @@ impl InspectorModal {
                         ui.horizontal(|ui| {
                             ui.label(RichText::new("Binary:").strong().color(Theme::PRIMARY));
                             ui.label(bin.to_string_lossy());
-                            if ui.button("📂 Open").clicked() {
+                            if ui
+                                .button("📂 Open")
+                                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                .clicked()
+                            {
                                 if let Some(parent) = bin.parent() {
                                     let _ = open::that(parent);
                                 }
@@ -63,7 +67,11 @@ impl InspectorModal {
                         ui.horizontal(|ui| {
                             ui.label(RichText::new("Desktop Launcher:").strong().color(Theme::ACCENT_CYAN));
                             ui.label(desk.to_string_lossy());
-                            if ui.button("📂 Open").clicked() {
+                            if ui
+                                .button("📂 Open")
+                                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                .clicked()
+                            {
                                 if let Some(parent) = desk.parent() {
                                     let _ = open::that(parent);
                                 }
@@ -102,7 +110,11 @@ impl InspectorModal {
                                         });
 
                                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                            if ui.button("📂 Open Folder").clicked() {
+                                            if ui
+                                                .button("📂 Open Folder")
+                                                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                                .clicked()
+                                            {
                                                 let _ = open::that(&r.path);
                                             }
                                             ui.label(RichText::new(format_size(r.size_bytes)).strong());

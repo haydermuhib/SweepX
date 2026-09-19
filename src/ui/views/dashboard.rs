@@ -284,7 +284,11 @@ impl DashboardView {
 
                             // Column 5: Actions
                             cols[4].horizontal(|ui| {
-                                if ui.button(RichText::new("🔍 Inspect").size(12.0_f32)).clicked() {
+                                if ui
+                                    .button(RichText::new("🔍 Inspect").size(12.0_f32))
+                                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                    .clicked()
+                                {
                                     *on_inspect = Some(app.clone());
                                 }
                                 if ui
@@ -293,6 +297,7 @@ impl DashboardView {
                                             .size(12.0_f32)
                                             .color(Theme::ACCENT_DANGER),
                                     )
+                                    .on_hover_cursor(egui::CursorIcon::PointingHand)
                                     .clicked()
                                 {
                                     *on_clean = Some(app.clone());
@@ -313,52 +318,46 @@ impl DashboardView {
             (Theme::BG_CARD, Theme::TEXT_SECONDARY, Stroke::new(1.0_f32, Theme::BORDER))
         };
 
-        let response = egui::Frame::none()
+        let text = if is_selected {
+            RichText::new(label).color(text_color).strong().size(12.0_f32)
+        } else {
+            RichText::new(label).color(text_color).size(12.0_f32)
+        };
+
+        let btn = egui::Button::new(text)
             .fill(bg_color)
             .stroke(border_stroke)
             .rounding(14.0_f32)
-            .inner_margin(egui::Margin::symmetric(10.0_f32, 4.0_f32))
-            .show(ui, |ui| {
-                let text = if is_selected {
-                    RichText::new(label).color(text_color).strong().size(12.0_f32)
-                } else {
-                    RichText::new(label).color(text_color).size(12.0_f32)
-                };
-                ui.label(text);
-            });
+            .min_size(egui::vec2(0.0_f32, 24.0_f32));
 
-        ui.interact(response.response.rect, response.response.id, egui::Sense::click()).clicked()
+        ui.add(btn)
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
     }
 
     /// Renders a small high-contrast sort button chip.
     fn render_sort_button(ui: &mut Ui, label: &str, is_active: bool) -> bool {
-        let (bg_color, text_color) = if is_active {
-            (Theme::PRIMARY_MUTED, Color32::WHITE)
+        let (bg_color, text_color, border_stroke) = if is_active {
+            (Theme::PRIMARY_MUTED, Color32::WHITE, Stroke::new(1.0_f32, Theme::PRIMARY))
         } else {
-            (Theme::BG_DARK, Theme::TEXT_MUTED)
+            (Theme::BG_DARK, Theme::TEXT_MUTED, Stroke::new(1.0_f32, Theme::BORDER))
         };
 
-        let stroke = if is_active {
-            Stroke::new(1.0_f32, Theme::PRIMARY)
+        let text = if is_active {
+            RichText::new(label).color(text_color).strong().size(11.0_f32)
         } else {
-            Stroke::new(1.0_f32, Theme::BORDER)
+            RichText::new(label).color(text_color).size(11.0_f32)
         };
 
-        let response = egui::Frame::none()
+        let btn = egui::Button::new(text)
             .fill(bg_color)
-            .stroke(stroke)
+            .stroke(border_stroke)
             .rounding(6.0_f32)
-            .inner_margin(egui::Margin::symmetric(8.0_f32, 3.0_f32))
-            .show(ui, |ui| {
-                let text = if is_active {
-                    RichText::new(label).color(text_color).strong().size(11.0_f32)
-                } else {
-                    RichText::new(label).color(text_color).size(11.0_f32)
-                };
-                ui.label(text);
-            });
+            .min_size(egui::vec2(0.0_f32, 22.0_f32));
 
-        ui.interact(response.response.rect, response.response.id, egui::Sense::click()).clicked()
+        ui.add(btn)
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
     }
 
     fn table_header_btn(ui: &mut Ui, label: &str, is_sorted: bool, dir: SortDirection) -> bool {
@@ -374,7 +373,9 @@ impl DashboardView {
             RichText::new(label).strong().color(Theme::TEXT_MUTED)
         };
 
-        ui.button(text).clicked()
+        ui.add(egui::Button::new(text).fill(Color32::TRANSPARENT).stroke(Stroke::NONE))
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .clicked()
     }
 
     fn toggle_sort(field: &mut SortField, dir: &mut SortDirection, target_field: SortField) {

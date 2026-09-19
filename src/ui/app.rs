@@ -10,7 +10,7 @@ use crate::db::{AuditLogEntry, Database};
 use crate::models::{Application, ResidualCandidate};
 use crate::scanner::scan_all_applications;
 use chrono::Utc;
-use eframe::egui::{self, Align, Layout, RichText};
+use eframe::egui::{self, Align, Color32, Layout, RichText, Stroke};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use tokio::runtime::Runtime;
 
@@ -153,7 +153,13 @@ impl eframe::App for SweepXApp {
                 ui.label(RichText::new("Linux App Tracker & Deep Purge").size(13.0_f32).color(Theme::TEXT_MUTED));
 
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui.button(if self.is_scanning { "⏳ Scanning..." } else { "🔄 Refresh Scan" }).clicked() {
+                    if ui
+                        .add(egui::Button::new(
+                            if self.is_scanning { "⏳ Scanning..." } else { "🔄 Refresh Scan" },
+                        ))
+                        .on_hover_cursor(egui::CursorIcon::PointingHand)
+                        .clicked()
+                    {
                         self.trigger_refresh();
                     }
 
@@ -167,12 +173,25 @@ impl eframe::App for SweepXApp {
                     for (tab, label) in tabs {
                         let is_active = self.active_tab == tab;
                         let text = if is_active {
-                            RichText::new(label).strong().color(Theme::PRIMARY)
+                            RichText::new(label).strong().color(Color32::WHITE)
                         } else {
                             RichText::new(label).color(Theme::TEXT_SECONDARY)
                         };
 
-                        if ui.selectable_label(is_active, text).clicked() {
+                        let btn = egui::Button::new(text)
+                            .fill(if is_active { Theme::PRIMARY } else { Theme::BG_CARD })
+                            .stroke(if is_active {
+                                Stroke::new(1.0_f32, Theme::PRIMARY_HOVER)
+                            } else {
+                                Stroke::new(1.0_f32, Theme::BORDER)
+                            })
+                            .rounding(6.0_f32);
+
+                        if ui
+                            .add(btn)
+                            .on_hover_cursor(egui::CursorIcon::PointingHand)
+                            .clicked()
+                        {
                             self.active_tab = tab;
                         }
                     }
