@@ -35,6 +35,6 @@ chrono = { version = "0.4", features = ["serde"] }
 regex = "1.10"
 freedesktop-desktop-entry = "0.7"
 open = "5.3"
+tempfile = "3.10"
 
 [dev-dependencies]
-tempfile = "3.10"

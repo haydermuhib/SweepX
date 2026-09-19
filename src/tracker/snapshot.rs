@@ -41,8 +41,13 @@ pub fn get_monitored_install_roots() -> Vec<PathBuf> {
 }
 
 impl FilesystemSnapshot {
-    /// Captures a point-in-time filesystem state across all monitored roots.
+    /// Captures a point-in-time filesystem state across all monitored roots with default depth 8.
     pub fn capture() -> Self {
+        Self::capture_with_depth(8)
+    }
+
+    /// Captures a point-in-time filesystem state with configurable directory traversal depth.
+    pub fn capture_with_depth(max_depth: usize) -> Self {
         let roots = get_monitored_install_roots();
         let mut file_entries = HashMap::new();
 
@@ -52,7 +57,7 @@ impl FilesystemSnapshot {
             }
 
             for entry in WalkDir::new(&root)
-                .max_depth(5)
+                .max_depth(max_depth)
                 .into_iter()
                 .filter_map(|e| e.ok())
             {
