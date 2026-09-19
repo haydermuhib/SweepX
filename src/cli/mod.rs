@@ -3,8 +3,7 @@ pub mod commands;
 pub use commands::{CategoryFilter, Cli, Commands};
 
 use crate::cleaner::{
-    discover_residuals_for_app, execute_purge_package, execute_purge_residuals,
-    scan_all_orphaned_residuals, DeletionMode,
+    discover_residuals_for_app, execute_purge_package, execute_purge_residuals, DeletionMode,
 };
 use crate::db::{AuditLogEntry, Database};
 use crate::models::{format_size, Application, InstallMethod};
@@ -100,17 +99,16 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
                 println!("  • Description: {}", desc);
             }
 
-            println!("\n📂 Discovered Residual Files & Directories ({} found):", residuals.len());
+            println!("\n📂 Associated Artifacts & Config Files ({} found):", residuals.len());
             if residuals.is_empty() {
-                println!("  (No leftover configs or caches found)");
+                println!("  (No user configs or caches found)");
             } else {
                 for r in &residuals {
                     println!(
-                        "  [{}] {} ({}) [Confidence: {:.0}%]",
+                        "  [{}] {} ({})",
                         r.kind.display_name(),
                         r.path.display(),
                         format_size(r.size_bytes),
-                        r.confidence * 100.0
                     );
                 }
             }
@@ -197,40 +195,6 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
                 for (p, err) in report.errors {
                     println!("  - {}: {}", p.display(), err);
                 }
-            }
-        }
-        Commands::Residuals { clean, permanent } => {
-            println!("🔍 Scanning host for orphaned residual caches and configs...");
-            let apps = scan_all_applications().await;
-            let orphans = scan_all_orphaned_residuals(&apps).await;
-
-            println!("\n🧹 Discovered Orphaned Residuals ({} found):", orphans.len());
-            let total_waste: u64 = orphans.iter().map(|o| o.size_bytes).sum();
-            println!("Total Reclaimable Storage: {}\n", format_size(total_waste));
-
-            for o in &orphans {
-                println!(
-                    "  • {} ({}) - {}",
-                    o.path.display(),
-                    format_size(o.size_bytes),
-                    o.kind.display_name()
-                );
-            }
-
-            if clean && !orphans.is_empty() {
-                println!("\n🚀 Cleaning orphaned residuals...");
-                let mode = if permanent {
-                    DeletionMode::Permanent
-                } else {
-                    DeletionMode::Trash
-                };
-                let report = execute_purge_residuals(&orphans, mode).await;
-                println!(
-                    "🎉 Cleanup complete! Reclaimed {}.",
-                    format_size(report.freed_bytes)
-                );
-            } else if !orphans.is_empty() {
-                println!("\n💡 Run `sweepx residuals --clean` to safely move these items to Trash.");
             }
         }
         Commands::History => {

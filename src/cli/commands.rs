@@ -26,7 +26,7 @@ pub enum Commands {
         json: bool,
     },
 
-    /// Inspect detailed artifacts, dependencies, and residual files for an application
+    /// Inspect detailed artifacts, dependencies, and residual files for a specific application
     Inspect {
         /// Application ID or name
         app_id: String,
@@ -36,7 +36,7 @@ pub enum Commands {
         json: bool,
     },
 
-    /// Deep purge an application and its associated residual files
+    /// Deep purge an application and its associated configuration and cache files
     Purge {
         /// Application ID or name to purge
         app_id: String,
@@ -46,17 +46,6 @@ pub enum Commands {
         dry_run: bool,
 
         /// Permanently delete files instead of moving them to desktop trash
-        #[arg(long)]
-        permanent: bool,
-    },
-
-    /// Scan system for orphaned residual directories and caches
-    Residuals {
-        /// Automatically clean detected orphaned residuals
-        #[arg(long)]
-        clean: bool,
-
-        /// Permanently delete instead of moving to trash
         #[arg(long)]
         permanent: bool,
     },
