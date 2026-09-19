@@ -41,11 +41,14 @@ jobs:
           cd target/${{ matrix.target }}/release
           tar -czf sweepx-${{ matrix.target }}.tar.gz sweepx
           mv sweepx-${{ matrix.target }}.tar.gz $GITHUB_WORKSPACE/
+          cp sweepx $GITHUB_WORKSPACE/sweepx
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: sweepx-${{ matrix.target }}.tar.gz
+          files: |
+            sweepx-${{ matrix.target }}.tar.gz
+            sweepx
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -117,6 +117,32 @@ pub async fn perform_self_update(download_url: &str) -> Result<PathBuf, String> 
         return Err("Download failed with non-zero exit code".to_string());
     }
 
+    // If the download is a tar.gz archive, extract the sweepx binary
+    if download_url.ends_with(".tar.gz") || download_url.ends_with(".tgz") {
+        let extract_dir = parent_dir.join(format!(".sweepx-extract-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&extract_dir);
+        let tar_status = Command::new("tar")
+            .args(["-xzf", temp_download.to_str().unwrap(), "-C", extract_dir.to_str().unwrap()])
+            .status()
+            .await;
+        
+        let _ = std::fs::remove_file(&temp_download);
+
+        if let Ok(status) = tar_status {
+            if status.success() {
+                let extracted_binary = extract_dir.join("sweepx");
+                if extracted_binary.exists() {
+                    let _ = std::fs::rename(&extracted_binary, &temp_download);
+                }
+            }
+        }
+        let _ = std::fs::remove_dir_all(&extract_dir);
+
+        if !temp_download.exists() {
+            return Err("Failed to extract binary from downloaded archive".to_string());
+        }
+    }
+
     // Set executable permissions
     #[cfg(unix)]
     {
