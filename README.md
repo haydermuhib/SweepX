@@ -4,7 +4,7 @@
 
 [![Rust](https://img.shields.io/badge/rust-edition%202024-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux-green.svg)](#installation)
+[![Platform](https://img.shields.io/badge/platform-Linux-green.svg)](#quick-installation)
 
 SweepX is a standalone Linux desktop utility written in pure Rust. It tracks applications across native package managers, container formats, and manual directory installations, with tools to inspect file footprints, record live installs, optimize container storage, and completely remove applications and leftover caches.
 
