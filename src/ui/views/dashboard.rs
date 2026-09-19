@@ -20,10 +20,11 @@ impl DashboardView {
         apps: &[Application],
         search_query: &mut String,
         selected_filter: &mut UiCategoryFilter,
+        show_system_packages: &mut bool,
         on_inspect: &mut Option<Application>,
         on_clean: &mut Option<Application>,
     ) {
-        Self::render_metrics_header(ui, apps);
+        Self::render_metrics_header(ui, apps, *show_system_packages);
         ui.add_space(16.0_f32);
 
         ui.horizontal(|ui| {
@@ -31,10 +32,10 @@ impl DashboardView {
             ui.add(
                 egui::TextEdit::singleline(search_query)
                     .hint_text("Search by name, ID, or executable...")
-                    .desired_width(280.0_f32),
+                    .desired_width(260.0_f32),
             );
 
-            ui.add_space(16.0_f32);
+            ui.add_space(12.0_f32);
             ui.label(RichText::new("Filter:").color(Theme::TEXT_MUTED));
 
             let filters = [
@@ -58,6 +59,10 @@ impl DashboardView {
                     *selected_filter = filter_type;
                 }
             }
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.checkbox(show_system_packages, "Show System Libraries");
+            });
         });
 
         ui.add_space(12.0_f32);
@@ -68,6 +73,11 @@ impl DashboardView {
         let filtered_apps: Vec<&Application> = apps
             .iter()
             .filter(|app| {
+                // System filter check
+                if !*show_system_packages && app.is_system {
+                    return false;
+                }
+
                 let matches_cat = match selected_filter {
                     UiCategoryFilter::All => true,
                     UiCategoryFilter::Native => app.install_method.is_native_system(),
@@ -146,10 +156,20 @@ impl DashboardView {
                                     InstallMethod::Flatpak => (Color32::from_rgb(37, 99, 235), Color32::WHITE),
                                     InstallMethod::Snap => (Color32::from_rgb(217, 119, 6), Color32::WHITE),
                                     InstallMethod::NativeApt | InstallMethod::NativeDnf | InstallMethod::NativePacman => {
-                                        (Color32::from_rgb(16, 185, 129), Color32::WHITE)
+                                        if app.is_system {
+                                            (Color32::from_rgb(107, 114, 128), Color32::WHITE)
+                                        } else {
+                                            (Color32::from_rgb(16, 185, 129), Color32::WHITE)
+                                        }
                                     }
                                     InstallMethod::AppImage => (Color32::from_rgb(147, 51, 234), Color32::WHITE),
                                     _ => (Color32::from_rgb(75, 85, 99), Color32::WHITE),
+                                };
+
+                                let label_text = if app.is_system {
+                                    format!("{} (System)", app.install_method.badge_label())
+                                } else {
+                                    app.install_method.badge_label().to_string()
                                 };
 
                                 egui::Frame::none()
@@ -158,7 +178,7 @@ impl DashboardView {
                                     .rounding(4.0_f32)
                                     .show(ui, |ui| {
                                         ui.label(
-                                            RichText::new(app.install_method.badge_label())
+                                            RichText::new(label_text)
                                                 .size(11.0_f32)
                                                 .color(text_color)
                                                 .strong(),
@@ -205,14 +225,20 @@ impl DashboardView {
         });
     }
 
-    fn render_metrics_header(ui: &mut Ui, apps: &[Application]) {
-        let total_apps = apps.len();
-        let total_size: u64 = apps.iter().map(|a| a.total_size_bytes).sum();
-        let flatpaks = apps.iter().filter(|a| a.install_method == InstallMethod::Flatpak).count();
-        let native = apps.iter().filter(|a| a.install_method.is_native_system()).count();
+    fn render_metrics_header(ui: &mut Ui, apps: &[Application], show_system: bool) {
+        let visible_apps: Vec<&Application> = if show_system {
+            apps.iter().collect()
+        } else {
+            apps.iter().filter(|a| !a.is_system).collect()
+        };
+
+        let total_apps = visible_apps.len();
+        let total_size: u64 = visible_apps.iter().map(|a| a.total_size_bytes).sum();
+        let flatpaks = visible_apps.iter().filter(|a| a.install_method == InstallMethod::Flatpak).count();
+        let native_user = visible_apps.iter().filter(|a| a.install_method.is_native_system() && !a.is_system).count();
 
         ui.horizontal(|ui| {
-            Self::metric_card(ui, "Installed Software", &format!("{}", total_apps), "Applications discovered", Theme::PRIMARY);
+            Self::metric_card(ui, "Installed User Software", &format!("{}", total_apps), "Applications discovered", Theme::PRIMARY);
             ui.add_space(12.0_f32);
 
             Self::metric_card(ui, "Storage Footprint", &format_size(total_size), "Estimated disk usage", Theme::ACCENT_SUCCESS);
@@ -220,9 +246,9 @@ impl DashboardView {
 
             Self::metric_card(
                 ui,
-                "Package Tiers",
-                &format!("{} Native • {} Flatpak", native, flatpaks),
-                "Cross-tier unified registry",
+                "Package Breakdown",
+                &format!("{} Native • {} Flatpak", native_user, flatpaks),
+                "User-installed applications",
                 Theme::ACCENT_CYAN,
             );
         });

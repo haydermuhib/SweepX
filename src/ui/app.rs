@@ -36,6 +36,7 @@ pub struct SweepXApp {
     active_tab: ActiveTab,
     search_query: String,
     category_filter: UiCategoryFilter,
+    show_system_packages: bool,
 
     // Modal states
     inspecting_app: Option<Application>,
@@ -67,6 +68,7 @@ impl SweepXApp {
             active_tab: ActiveTab::Dashboard,
             search_query: String::new(),
             category_filter: UiCategoryFilter::All,
+            show_system_packages: false,
             inspecting_app: None,
             inspecting_residuals: Vec::new(),
             show_inspector: false,
@@ -183,6 +185,7 @@ impl eframe::App for SweepXApp {
                         &self.apps,
                         &mut self.search_query,
                         &mut self.category_filter,
+                        &mut self.show_system_packages,
                         &mut on_inspect,
                         &mut on_clean,
                     );

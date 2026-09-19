@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use sweepx::models::InstallMethod;
 use sweepx::scanner::native::apt::AptManager;
 use sweepx::scanner::native::dnf::DnfManager;
@@ -9,7 +10,11 @@ fn test_parse_dpkg_query_output() {
                   libc6\t2.36-9+deb12u4\t12450\tlibs\tGNU C Library: Shared libraries\n\
                   git\t1:2.39.2-1.1\t38500\tvcs\tfast, scalable, distributed revision control system";
 
-    let apps = AptManager::parse_dpkg_query_output(output);
+    let mut manual = HashSet::new();
+    manual.insert("curl".to_string());
+    manual.insert("git".to_string());
+
+    let apps = AptManager::parse_dpkg_query_output(output, &manual);
     assert_eq!(apps.len(), 3);
 
     assert_eq!(apps[0].id, "curl");
@@ -17,12 +22,12 @@ fn test_parse_dpkg_query_output() {
     assert_eq!(apps[0].total_size_bytes, 450 * 1024);
     assert!(!apps[0].is_system);
 
-    // libc6 belongs to libs section so marked as system
     assert_eq!(apps[1].id, "libc6");
     assert!(apps[1].is_system);
 
     assert_eq!(apps[2].id, "git");
     assert_eq!(apps[2].version.as_deref(), Some("1:2.39.2-1.1"));
+    assert!(!apps[2].is_system);
 }
 
 #[test]
@@ -31,7 +36,11 @@ fn test_parse_rpm_query_output() {
                   glibc\t2.39-13.fc40\t29840210\tSystem Environment/Libraries\tThe GNU libc libraries\n\
                   htop\t3.3.0-2.fc40\t390234\tApplications/System\tInteractive process viewer";
 
-    let apps = DnfManager::parse_rpm_query_output(output);
+    let mut user_installed = HashSet::new();
+    user_installed.insert("ripgrep".to_string());
+    user_installed.insert("htop".to_string());
+
+    let apps = DnfManager::parse_rpm_query_output(output, &user_installed);
     assert_eq!(apps.len(), 3);
 
     assert_eq!(apps[0].id, "ripgrep");
@@ -44,6 +53,7 @@ fn test_parse_rpm_query_output() {
 
     assert_eq!(apps[2].id, "htop");
     assert_eq!(apps[2].version.as_deref(), Some("3.3.0-2.fc40"));
+    assert!(!apps[2].is_system);
 }
 
 #[test]
@@ -66,8 +76,8 @@ fn test_parse_pacman_qi_output() {
     assert_eq!(apps[0].id, "neovim");
     assert_eq!(apps[0].install_method, InstallMethod::NativePacman);
     assert_eq!(apps[0].version.as_deref(), Some("0.9.5-1"));
-    assert!(!apps[0].is_system); // Explicitly installed
+    assert!(!apps[0].is_system);
 
     assert_eq!(apps[1].id, "glibc");
-    assert!(apps[1].is_system); // Installed as dependency
+    assert!(apps[1].is_system);
 }

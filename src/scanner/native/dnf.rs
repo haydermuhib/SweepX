@@ -1,4 +1,5 @@
 use crate::models::{Application, InstallMethod};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use tokio::process::Command;
 
@@ -13,8 +14,33 @@ impl DnfManager {
         which::which("rpm").is_ok() || which::which("dnf").is_ok()
     }
 
+    /// Fetches the set of packages explicitly requested/installed by the user.
+    pub async fn get_user_installed_set() -> HashSet<String> {
+        let output = Command::new("dnf")
+            .args(["repoquery", "--userinstalled", "--qf", "%{name}\n"])
+            .output()
+            .await;
+
+        let mut user_installed = HashSet::new();
+        if let Ok(out) = output {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                for line in stdout.lines() {
+                    let name = line.trim();
+                    if !name.is_empty() {
+                        user_installed.insert(name.to_lowercase());
+                    }
+                }
+            }
+        }
+        user_installed
+    }
+
     /// Parses output from `rpm -qa --queryformat '%{NAME}\t%{VERSION}-%{RELEASE}\t%{SIZE}\t%{GROUP}\t%{SUMMARY}\n'`
-    pub fn parse_rpm_query_output(stdout: &str) -> Vec<Application> {
+    pub fn parse_rpm_query_output(
+        stdout: &str,
+        user_installed: &HashSet<String>,
+    ) -> Vec<Application> {
         let mut apps = Vec::new();
 
         for line in stdout.lines() {
@@ -38,10 +64,19 @@ impl DnfManager {
             let group = parts.get(3).map(|s| s.trim().to_string());
             let summary = parts.get(4).map(|s| s.trim().to_string());
 
-            let is_system = group
-                .as_deref()
-                .map(|g| g.contains("System") || g.contains("Kernel") || g.contains("Libraries"))
-                .unwrap_or(false);
+            let name_lower = pkg_name.to_lowercase();
+            let is_explicit = user_installed.contains(&name_lower);
+
+            let is_lib = name_lower.ends_with("-libs")
+                || name_lower.ends_with("-devel")
+                || name_lower.ends_with("-common")
+                || name_lower.starts_with("lib")
+                || group
+                    .as_deref()
+                    .map(|g| g.starts_with("System Environment") || g.starts_with("Kernel") || g == "System")
+                    .unwrap_or(false);
+
+            let is_system = !is_explicit || is_lib;
 
             let mut app = Application::new(pkg_name, pkg_name, InstallMethod::NativeDnf);
             app.version = version;
@@ -60,19 +95,21 @@ impl DnfManager {
             return Vec::new();
         }
 
-        let output = Command::new("rpm")
-            .args([
-                "-qa",
-                "--queryformat",
-                "%{NAME}\t%{VERSION}-%{RELEASE}\t%{SIZE}\t%{GROUP}\t%{SUMMARY}\n",
-            ])
-            .output()
-            .await;
+        let (user_installed, rpm_output) = tokio::join!(
+            Self::get_user_installed_set(),
+            Command::new("rpm")
+                .args([
+                    "-qa",
+                    "--queryformat",
+                    "%{NAME}\t%{VERSION}-%{RELEASE}\t%{SIZE}\t%{GROUP}\t%{SUMMARY}\n",
+                ])
+                .output()
+        );
 
-        match output {
+        match rpm_output {
             Ok(out) if out.status.success() => {
                 let stdout = String::from_utf8_lossy(&out.stdout);
-                Self::parse_rpm_query_output(&stdout)
+                Self::parse_rpm_query_output(&stdout, &user_installed)
             }
             _ => Vec::new(),
         }
