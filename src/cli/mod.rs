@@ -16,21 +16,30 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
         Commands::Gui => {
             // Handled in main.rs
         }
-        Commands::List { category, json } => {
+        Commands::List {
+            category,
+            all_system,
+            json,
+        } => {
             println!("🔍 Scanning host applications across all packaging tiers...");
             let apps = scan_all_applications().await;
 
             let filtered: Vec<Application> = apps
                 .into_iter()
-                .filter(|app| match category {
-                    CategoryFilter::All => true,
-                    CategoryFilter::Native => app.install_method.is_native_system(),
-                    CategoryFilter::Flatpak => app.install_method == InstallMethod::Flatpak,
-                    CategoryFilter::Snap => app.install_method == InstallMethod::Snap,
-                    CategoryFilter::Appimage => app.install_method == InstallMethod::AppImage,
-                    CategoryFilter::Manual => {
-                        app.install_method == InstallMethod::ManualOpt
-                            || app.install_method == InstallMethod::CustomDesktop
+                .filter(|app| {
+                    if !all_system && app.is_system {
+                        return false;
+                    }
+                    match category {
+                        CategoryFilter::All => true,
+                        CategoryFilter::Native => app.install_method.is_native_system(),
+                        CategoryFilter::Flatpak => app.install_method == InstallMethod::Flatpak,
+                        CategoryFilter::Snap => app.install_method == InstallMethod::Snap,
+                        CategoryFilter::Appimage => app.install_method == InstallMethod::AppImage,
+                        CategoryFilter::Manual => {
+                            app.install_method == InstallMethod::ManualOpt
+                                || app.install_method == InstallMethod::CustomDesktop
+                        }
                     }
                 })
                 .collect();

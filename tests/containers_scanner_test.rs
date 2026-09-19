@@ -34,19 +34,29 @@ fn test_parse_flatpak_size_string() {
 
 #[test]
 fn test_parse_snap_list() {
-    let output = "Name       Version     Rev    Tracking       Publisher     Notes\n\
-                  core20     20231123    2105   latest/stable  canonical✓    base\n\
-                  postman    10.24.8     249    latest/stable  postman-inc✓  -\n\
-                  vlc        3.0.19      3721   latest/stable  videolan✓     -\n\
-                  snapd      2.61.2      21184  latest/stable  canonical✓    snapd";
+    let output = "Name                          Version                         Rev    Tracking       Publisher     Notes\n\
+                  core20                        20231123                        2105   latest/stable  canonical✓    base\n\
+                  postman                       10.24.8                         249    latest/stable  postman-inc✓  -\n\
+                  wine-platform                 11.0-11.11                      154    latest/stable  mmtrt         -\n\
+                  gnome-46-2404                 0+git.b31ceab-sdk0+git.f0723a0  164    latest/stable  canonical✓    -\n\
+                  vlc                           3.0.19                          3721   latest/stable  videolan✓     -\n\
+                  snapd                         2.61.2                          21184  latest/stable  canonical✓    snapd";
 
     let apps = parse_snap_list_output(output);
-    // core20 and snapd should be filtered out
-    assert_eq!(apps.len(), 2);
+    assert_eq!(apps.len(), 6);
 
-    assert_eq!(apps[0].id, "postman");
-    assert_eq!(apps[0].version.as_deref(), Some("10.24.8"));
-    assert_eq!(apps[0].install_method, InstallMethod::Snap);
+    let user_apps: Vec<_> = apps.iter().filter(|a| !a.is_system).collect();
+    let runtime_apps: Vec<_> = apps.iter().filter(|a| a.is_system).collect();
 
-    assert_eq!(apps[1].id, "vlc");
+    assert_eq!(user_apps.len(), 2);
+    assert_eq!(user_apps[0].id, "postman");
+    assert_eq!(user_apps[0].version.as_deref(), Some("10.24.8"));
+    assert_eq!(user_apps[0].install_method, InstallMethod::Snap);
+    assert_eq!(user_apps[1].id, "vlc");
+
+    assert_eq!(runtime_apps.len(), 4);
+    assert!(runtime_apps.iter().any(|a| a.id == "core20"));
+    assert!(runtime_apps.iter().any(|a| a.id == "wine-platform"));
+    assert!(runtime_apps.iter().any(|a| a.id == "gnome-46-2404"));
+    assert!(runtime_apps.iter().any(|a| a.id == "snapd"));
 }

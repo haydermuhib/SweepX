@@ -34,6 +34,8 @@ pub fn parse_desktop_entry_content(content: &str, file_path: &Path) -> Option<Ap
     let mut no_display = false;
     let mut entry_type = None;
 
+    let mut snap_instance_name = None;
+
     for line in content.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') {
@@ -73,6 +75,9 @@ pub fn parse_desktop_entry_content(content: &str, file_path: &Path) -> Option<Ap
                 "Comment" if comment.is_none() => {
                     comment = Some(val.to_string());
                 }
+                "X-SnapInstanceName" => {
+                    snap_instance_name = Some(val.to_string());
+                }
                 "NoDisplay" => {
                     no_display = val.eq_ignore_ascii_case("true");
                 }
@@ -98,7 +103,7 @@ pub fn parse_desktop_entry_content(content: &str, file_path: &Path) -> Option<Ap
     let path_str = file_path.to_string_lossy();
     let install_method = if path_str.contains("flatpak") {
         InstallMethod::Flatpak
-    } else if path_str.contains("snap") {
+    } else if path_str.contains("snap") || snap_instance_name.is_some() {
         InstallMethod::Snap
     } else if let Some(ref e) = exec {
         if e.contains("/opt/") {
@@ -112,7 +117,20 @@ pub fn parse_desktop_entry_content(content: &str, file_path: &Path) -> Option<Ap
         InstallMethod::CustomDesktop
     };
 
-    let mut app = Application::new(file_stem, app_name, install_method);
+    // Normalize app ID for snaps to match snap name (e.g. notepad-plus-plus)
+    let app_id = if let Some(snap_name) = snap_instance_name {
+        snap_name
+    } else if install_method == InstallMethod::Snap {
+        if let Some((first, _)) = file_stem.split_once('_') {
+            first.to_string()
+        } else {
+            file_stem
+        }
+    } else {
+        file_stem
+    };
+
+    let mut app = Application::new(app_id, app_name, install_method);
     app.display_name = display_name.unwrap_or_else(|| app.name.clone());
     app.description = comment;
     app.icon = icon;

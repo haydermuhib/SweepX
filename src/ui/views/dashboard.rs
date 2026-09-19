@@ -214,8 +214,20 @@ impl DashboardView {
                             // Column 2: Packaging Origin Badge
                             cols[1].vertical(|ui| {
                                 let (badge_color, text_color) = match app.install_method {
-                                    InstallMethod::Flatpak => (Color32::from_rgb(37, 99, 235), Color32::WHITE),
-                                    InstallMethod::Snap => (Color32::from_rgb(217, 119, 6), Color32::WHITE),
+                                    InstallMethod::Flatpak => {
+                                        if app.is_system {
+                                            (Color32::from_rgb(59, 130, 246), Color32::WHITE)
+                                        } else {
+                                            (Color32::from_rgb(37, 99, 235), Color32::WHITE)
+                                        }
+                                    }
+                                    InstallMethod::Snap => {
+                                        if app.is_system {
+                                            (Color32::from_rgb(146, 64, 14), Color32::WHITE)
+                                        } else {
+                                            (Color32::from_rgb(217, 119, 6), Color32::WHITE)
+                                        }
+                                    }
                                     InstallMethod::NativeApt | InstallMethod::NativeDnf | InstallMethod::NativePacman => {
                                         if app.is_system {
                                             (Color32::from_rgb(100, 116, 139), Color32::WHITE)
@@ -228,7 +240,11 @@ impl DashboardView {
                                 };
 
                                 let label_text = if app.is_system {
-                                    format!("{} (System)", app.install_method.badge_label())
+                                    if app.install_method == InstallMethod::Snap {
+                                        "Snap (Runtime)".to_string()
+                                    } else {
+                                        format!("{} (System)", app.install_method.badge_label())
+                                    }
                                 } else {
                                     app.install_method.badge_label().to_string()
                                 };
@@ -386,6 +402,7 @@ impl DashboardView {
         let total_apps = visible_apps.len();
         let total_size: u64 = visible_apps.iter().map(|a| a.total_size_bytes).sum();
         let flatpaks = visible_apps.iter().filter(|a| a.install_method == InstallMethod::Flatpak).count();
+        let snaps = visible_apps.iter().filter(|a| a.install_method == InstallMethod::Snap).count();
         let native_user = visible_apps.iter().filter(|a| a.install_method.is_native_system() && !a.is_system).count();
 
         ui.horizontal(|ui| {
@@ -398,7 +415,7 @@ impl DashboardView {
             Self::metric_card(
                 ui,
                 "Package Breakdown",
-                &format!("{} Native • {} Flatpak", native_user, flatpaks),
+                &format!("{} Native • {} Flatpak • {} Snap", native_user, flatpaks, snaps),
                 "User-installed applications",
                 Theme::ACCENT_CYAN,
             );

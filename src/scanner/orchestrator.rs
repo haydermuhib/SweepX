@@ -45,11 +45,33 @@ pub async fn scan_all_applications() -> Vec<Application> {
 
     // 3. Merge Snaps
     for app in snap_res {
-        if let Some(existing) = app_map.get_mut(&app.id) {
+        let matching_key = if app_map.contains_key(&app.id) {
+            Some(app.id.clone())
+        } else {
+            app_map
+                .keys()
+                .find(|k| {
+                    k.starts_with(&format!("{}_", app.id))
+                        || (app_map.get(*k).map_or(false, |a| {
+                            a.install_method == InstallMethod::Snap
+                                && (a.id.contains(&app.id) || a.name.to_lowercase() == app.name.to_lowercase())
+                        }))
+                })
+                .cloned()
+        };
+
+        if let Some(key) = matching_key {
+            let mut existing = app_map.remove(&key).unwrap();
+            existing.id = app.id.clone();
             existing.install_method = InstallMethod::Snap;
-            existing.version = app.version.or(existing.version.clone());
-            existing.total_size_bytes = existing.total_size_bytes.max(app.total_size_bytes);
+            existing.version = app.version.or(existing.version);
+            existing.total_size_bytes += app.total_size_bytes;
             existing.artifacts.extend(app.artifacts);
+            existing.is_system = app.is_system;
+            if existing.description.is_none() {
+                existing.description = app.description;
+            }
+            app_map.insert(app.id.clone(), existing);
         } else {
             app_map.insert(app.id.clone(), app);
         }

@@ -21,6 +21,10 @@ pub enum Commands {
         #[arg(short, long, value_enum, default_value = "all")]
         category: CategoryFilter,
 
+        /// Include system libraries, base frameworks, and shared runtimes
+        #[arg(short = 's', long)]
+        all_system: bool,
+
         /// Output results in formatted JSON
         #[arg(long)]
         json: bool,
