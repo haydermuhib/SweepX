@@ -49,13 +49,19 @@ echo -e "Detected platform: ${GREEN}Linux ($TARGET_ARCH)${NC}"
 if [ "$EUID" -eq 0 ]; then
     INSTALL_DIR="/usr/local/bin"
     APPS_DIR="/usr/local/share/applications"
+    ICONS_DIR="/usr/local/share/icons/hicolor/scalable/apps"
+    PIXMAPS_DIR="/usr/local/share/pixmaps"
 else
     INSTALL_DIR="$HOME/.local/bin"
     APPS_DIR="$HOME/.local/share/applications"
+    ICONS_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
+    PIXMAPS_DIR="$HOME/.local/share/pixmaps"
 fi
 
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$APPS_DIR"
+mkdir -p "$ICONS_DIR"
+mkdir -p "$PIXMAPS_DIR"
 
 # 4. Check Download Tools
 DOWNLOADER=""
@@ -118,7 +124,6 @@ if [ "$INSTALLED_SUCCESS" -eq 0 ]; then
             wget -qO- https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
         fi
         if [ -f "$HOME/.cargo/env" ]; then
-            # Source cargo environment for this script
             source "$HOME/.cargo/env"
         fi
     fi
@@ -136,13 +141,6 @@ if [ "$INSTALLED_SUCCESS" -eq 0 ]; then
 fi
 
 # 7. Install Application Icon
-if [ "$EUID" -eq 0 ]; then
-    ICONS_DIR="/usr/local/share/icons/hicolor/scalable/apps"
-else
-    ICONS_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
-fi
-mkdir -p "$ICONS_DIR"
-
 cat <<'EOF' > "$ICONS_DIR/sweepx.svg"
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
   <defs>
@@ -176,27 +174,38 @@ cat <<'EOF' > "$ICONS_DIR/sweepx.svg"
 </svg>
 EOF
 
-# 8. Register Desktop Launchers (Application Menu & Desktop)
+# Copy icon to pixmaps and top-level icon directories for universal DE compatibility
+cp "$ICONS_DIR/sweepx.svg" "$PIXMAPS_DIR/sweepx.svg" 2>/dev/null || true
+if [ "$EUID" -ne 0 ]; then
+    mkdir -p "$HOME/.local/share/icons"
+    cp "$ICONS_DIR/sweepx.svg" "$HOME/.local/share/icons/sweepx.svg" 2>/dev/null || true
+fi
+
+# 8. Register Desktop Launcher (Application Menu only)
 cat <<EOF > "$APPS_DIR/sweepx.desktop"
 [Desktop Entry]
 Type=Application
 Name=SweepX
 Comment=Unified Linux Application Tracker & Deep Uninstaller
 Exec=$INSTALL_DIR/$BINARY_NAME gui
-Icon=sweepx
+Icon=$ICONS_DIR/sweepx.svg
 Categories=System;Utility;Settings;
 Terminal=false
 StartupNotify=true
 EOF
 chmod +x "$APPS_DIR/sweepx.desktop"
 
-# Optional Desktop shortcut if ~/Desktop exists
-if [ -d "$HOME/Desktop" ]; then
-    cp "$APPS_DIR/sweepx.desktop" "$HOME/Desktop/sweepx.desktop"
-    chmod +x "$HOME/Desktop/sweepx.desktop"
-    if command -v gio >/dev/null 2>&1; then
-        gio set "$HOME/Desktop/sweepx.desktop" metadata::trusted true 2>/dev/null || true
-    fi
+# Clean up any leftover shortcut on the desktop directory if present
+if [ -f "$HOME/Desktop/sweepx.desktop" ]; then
+    rm -f "$HOME/Desktop/sweepx.desktop"
+fi
+
+# Update desktop and icon databases
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$APPS_DIR" 2>/dev/null || true
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -f -t "$HOME/.local/share/icons/hicolor" 2>/dev/null || true
 fi
 
 # 9. Check PATH configuration
@@ -229,9 +238,7 @@ echo -e "${GREEN}====================================================${NC}"
 echo -e "Binary installed at: ${CYAN}$INSTALL_DIR/$BINARY_NAME${NC}"
 echo -e "Icon installed at:   ${CYAN}$ICONS_DIR/sweepx.svg${NC}"
 echo -e "App launcher at:     ${CYAN}$APPS_DIR/sweepx.desktop${NC}"
-if [ -d "$HOME/Desktop" ]; then
-    echo -e "Desktop shortcut at: ${CYAN}$HOME/Desktop/sweepx.desktop${NC}"
-fi
+
 echo -e "\n🚀 Run from terminal: ${GREEN}sweepx${NC}"
 echo -e "📦 CLI app listing:   ${GREEN}sweepx list${NC}"
 echo -e "🔄 Check updates:     ${GREEN}sweepx update${NC}\n"
