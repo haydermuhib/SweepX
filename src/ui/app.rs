@@ -1,10 +1,11 @@
 use super::theme::Theme;
 use super::views::{
-    CleanModal, DashboardView, HistoryView, InspectorModal, SortDirection, SortField,
-    UiCategoryFilter,
+    CleanModal, DashboardView, HistoryView, InspectorModal, OptimizerView, SortDirection,
+    SortField, UiCategoryFilter,
 };
 use crate::cleaner::{
-    discover_residuals_for_app, execute_purge_package, execute_purge_residuals, DeletionMode,
+    discover_residuals_for_app, execute_purge_package, execute_purge_residuals,
+    execute_system_sweep, scan_all_sweep_items, DeletionMode, SystemSweepItem, SystemSweepReport,
 };
 use crate::db::{AuditLogEntry, Database};
 use crate::models::{Application, ResidualCandidate};
@@ -17,6 +18,7 @@ use tokio::runtime::Runtime;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActiveTab {
     Dashboard,
+    Optimizer,
     History,
 }
 
@@ -25,6 +27,8 @@ pub enum AsyncMessage {
     ResidualsFound(Application, Vec<ResidualCandidate>),
     PurgeComplete(String, u64),
     HistoryLoaded(Vec<AuditLogEntry>),
+    SweepItemsScanned(Vec<SystemSweepItem>),
+    SweepCleanComplete(SystemSweepReport),
     StatusUpdate(String),
 }
 
@@ -35,6 +39,9 @@ pub struct SweepXApp {
 
     apps: Vec<Application>,
     history_logs: Vec<AuditLogEntry>,
+    sweep_items: Vec<SystemSweepItem>,
+    is_cleaning_sweep: bool,
+    last_sweep_report: Option<SystemSweepReport>,
 
     active_tab: ActiveTab,
     search_query: String,
@@ -70,6 +77,9 @@ impl SweepXApp {
             rx,
             apps: Vec::new(),
             history_logs: Vec::new(),
+            sweep_items: Vec::new(),
+            is_cleaning_sweep: false,
+            last_sweep_report: None,
             active_tab: ActiveTab::Dashboard,
             search_query: String::new(),
             category_filter: UiCategoryFilter::All,
@@ -89,6 +99,7 @@ impl SweepXApp {
         };
 
         app.trigger_refresh();
+        app.trigger_sweep_scan();
         app
     }
 
@@ -107,6 +118,25 @@ impl SweepXApp {
             }
 
             let _ = tx.send(AsyncMessage::AppsScanned(apps));
+        });
+    }
+
+    pub fn trigger_sweep_scan(&mut self) {
+        let tx = self.tx.clone();
+        self.rt.spawn(async move {
+            let items = scan_all_sweep_items().await;
+            let _ = tx.send(AsyncMessage::SweepItemsScanned(items));
+        });
+    }
+
+    pub fn trigger_sweep_clean(&mut self) {
+        self.is_cleaning_sweep = true;
+        let items_to_clean = self.sweep_items.clone();
+        let tx = self.tx.clone();
+
+        self.rt.spawn(async move {
+            let report = execute_system_sweep(&items_to_clean).await;
+            let _ = tx.send(AsyncMessage::SweepCleanComplete(report));
         });
     }
 
@@ -129,6 +159,16 @@ impl SweepXApp {
                     self.is_purging = false;
                     self.purge_status = Some(msg);
                     self.show_clean_modal = false;
+                    self.trigger_refresh();
+                    self.trigger_sweep_scan();
+                }
+                AsyncMessage::SweepItemsScanned(items) => {
+                    self.sweep_items = items;
+                }
+                AsyncMessage::SweepCleanComplete(report) => {
+                    self.is_cleaning_sweep = false;
+                    self.last_sweep_report = Some(report);
+                    self.trigger_sweep_scan();
                     self.trigger_refresh();
                 }
                 AsyncMessage::HistoryLoaded(logs) => {
@@ -161,12 +201,14 @@ impl eframe::App for SweepXApp {
                         .clicked()
                     {
                         self.trigger_refresh();
+                        self.trigger_sweep_scan();
                     }
 
                     ui.add_space(16.0_f32);
 
                     let tabs = [
                         (ActiveTab::History, "📜 History"),
+                        (ActiveTab::Optimizer, "🧹 Optimizer"),
                         (ActiveTab::Dashboard, "📦 Applications"),
                     ];
 
@@ -217,6 +259,24 @@ impl eframe::App for SweepXApp {
                         &mut on_inspect,
                         &mut on_clean,
                     );
+                }
+                ActiveTab::Optimizer => {
+                    let mut trigger_clean = false;
+                    let mut trigger_refresh = false;
+                    OptimizerView::render(
+                        ui,
+                        &mut self.sweep_items,
+                        self.is_cleaning_sweep,
+                        &self.last_sweep_report,
+                        &mut trigger_clean,
+                        &mut trigger_refresh,
+                    );
+                    if trigger_clean {
+                        self.trigger_sweep_clean();
+                    }
+                    if trigger_refresh {
+                        self.trigger_sweep_scan();
+                    }
                 }
                 ActiveTab::History => {
                     HistoryView::render(ui, &self.history_logs);

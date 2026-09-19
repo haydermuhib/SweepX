@@ -56,6 +56,17 @@ pub enum Commands {
 
     /// Show uninstallation audit log history
     History,
+
+    /// Scan and clean system bloat, obsolete container revisions, unused runtimes, and package caches
+    Sweep {
+        /// Perform dry-run without deleting files or removing revisions
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Output findings in JSON format
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]

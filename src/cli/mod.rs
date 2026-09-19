@@ -3,7 +3,8 @@ pub mod commands;
 pub use commands::{CategoryFilter, Cli, Commands};
 
 use crate::cleaner::{
-    discover_residuals_for_app, execute_purge_package, execute_purge_residuals, DeletionMode,
+    discover_residuals_for_app, execute_purge_package, execute_purge_residuals,
+    execute_system_sweep, scan_all_sweep_items, DeletionMode,
 };
 use crate::db::{AuditLogEntry, Database};
 use crate::models::{format_size, Application, InstallMethod};
@@ -231,6 +232,67 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
                     log.install_method,
                     format_size(log.freed_bytes)
                 );
+            }
+        }
+        Commands::Sweep { dry_run, json } => {
+            println!("🔍 Scanning system for obsolete container revisions, caches, and unused runtimes...");
+            let items = scan_all_sweep_items().await;
+
+            if json {
+                println!("{}", serde_json::to_string_pretty(&items.iter().map(|i| {
+                    serde_json::json!({
+                        "id": i.id,
+                        "title": i.title,
+                        "category": i.category.display_name(),
+                        "description": i.description,
+                        "reclaimable_bytes": i.reclaimable_bytes,
+                        "command": i.command,
+                    })
+                }).collect::<Vec<_>>())?);
+                return Ok(());
+            }
+
+            if items.is_empty() {
+                println!("✨ System is fully optimized! No obsolete revisions or package caches found.");
+                return Ok(());
+            }
+
+            let total_reclaimable: u64 = items.iter().map(|i| i.reclaimable_bytes).sum();
+            println!("\n🧹 Discovered Reclaimable System Bloat ({} items, ~{}):", items.len(), format_size(total_reclaimable));
+            println!(
+                "{:<38} {:<28} {:<12}",
+                "ITEM", "CATEGORY", "RECLAIMABLE"
+            );
+            println!("{:-<80}", "");
+
+            for item in &items {
+                println!(
+                    "{:<38} {:<28} {:<12}",
+                    truncate_str(&item.title, 37),
+                    truncate_str(item.category.display_name(), 27),
+                    if item.reclaimable_bytes > 0 { format_size(item.reclaimable_bytes) } else { "Dynamic".to_string() }
+                );
+            }
+
+            if dry_run {
+                println!("\n✅ [DRY RUN] No files, package caches, or snap revisions were modified.");
+                return Ok(());
+            }
+
+            println!("\n🚀 Executing system optimization...");
+            let report = execute_system_sweep(&items).await;
+
+            println!(
+                "🎉 System sweep completed! Cleaned {} items and reclaimed ~{}.",
+                report.items_cleaned,
+                format_size(report.freed_bytes)
+            );
+
+            if !report.errors.is_empty() {
+                println!("⚠️ Notice: {} items encountered errors during cleanup:", report.errors.len());
+                for err in report.errors {
+                    println!("  - {}", err);
+                }
             }
         }
     }
