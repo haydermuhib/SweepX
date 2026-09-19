@@ -60,6 +60,21 @@ impl InspectorModal {
                                     let _ = open::that(parent);
                                 }
                             }
+
+                            // Check if this binary is an AppImage that can be integrated into desktop
+                            let is_appimage = bin.extension().map_or(false, |ext| ext == "AppImage" || ext == "appimage")
+                                || app.install_method == crate::models::InstallMethod::AppImage;
+                            if is_appimage {
+                                if crate::scanner::is_appimage_integrated(bin).is_none() {
+                                    if ui
+                                        .button(RichText::new("⚡ Integrate Launcher").color(Theme::BG_DARK).strong())
+                                        .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                        .clicked()
+                                    {
+                                        let _ = crate::scanner::integrate_appimage(bin, &app.display_name);
+                                    }
+                                }
+                            }
                         });
                     }
 

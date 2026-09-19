@@ -1,3 +1,4 @@
+pub mod appimage;
 pub mod desktop_entry;
 pub mod flatpak;
 pub mod manual;
@@ -6,6 +7,7 @@ pub mod orchestrator;
 pub mod snap;
 pub mod symlink_graph;
 
+pub use appimage::{integrate_appimage, is_appimage_integrated, AppImageInfo};
 pub use desktop_entry::{
     extract_binary_from_exec, get_desktop_entry_directories, parse_desktop_entry_content,
     resolve_binary_path, scan_desktop_entries,
