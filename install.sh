@@ -121,32 +121,91 @@ if [ "$INSTALLED_SUCCESS" -eq 0 ]; then
     fi
 fi
 
-# 7. Register Desktop Launcher
+# 7. Install Application Icon
+if [ "$EUID" -eq 0 ]; then
+    ICONS_DIR="/usr/local/share/icons/hicolor/scalable/apps"
+else
+    ICONS_DIR="$HOME/.local/share/icons/hicolor/scalable/apps"
+fi
+mkdir -p "$ICONS_DIR"
+
+cat <<'EOF' > "$ICONS_DIR/sweepx.svg"
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e1b4b"/>
+      <stop offset="50%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#020617"/>
+    </linearGradient>
+    <linearGradient id="bolt-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8"/>
+      <stop offset="50%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#a855f7"/>
+    </linearGradient>
+    <linearGradient id="glow-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f2fe"/>
+      <stop offset="100%" stop-color="#4facfe"/>
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="12" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="100" fill="url(#bg-grad)" stroke="#38bdf8" stroke-opacity="0.3" stroke-width="6"/>
+  <circle cx="256" cy="256" r="160" fill="none" stroke="#6366f1" stroke-opacity="0.15" stroke-width="4" stroke-dasharray="12 8"/>
+  <path d="M280 80 L160 270 L250 270 L230 432 L350 242 L260 242 Z" fill="url(#glow-grad)" opacity="0.4" filter="url(#glow)"/>
+  <path d="M280 80 L160 270 L250 270 L230 432 L350 242 L260 242 Z" fill="url(#bolt-grad)" stroke="#ffffff" stroke-width="3" stroke-linejoin="round"/>
+  <circle cx="360" cy="140" r="8" fill="#38bdf8" opacity="0.8"/>
+  <circle cx="390" cy="180" r="5" fill="#818cf8" opacity="0.6"/>
+  <circle cx="130" cy="360" r="7" fill="#a855f7" opacity="0.7"/>
+  <circle cx="160" cy="400" r="4" fill="#38bdf8" opacity="0.5"/>
+</svg>
+EOF
+
+# 8. Register Desktop Launchers (Application Menu & Desktop)
 cat <<EOF > "$APPS_DIR/sweepx.desktop"
 [Desktop Entry]
 Type=Application
 Name=SweepX
 Comment=Unified Linux Application Tracker & Deep Uninstaller
 Exec=$INSTALL_DIR/$BINARY_NAME gui
-Icon=system-software-install
+Icon=sweepx
 Categories=System;Utility;Settings;
 Terminal=false
 StartupNotify=true
 EOF
 chmod +x "$APPS_DIR/sweepx.desktop"
 
-# 8. Check PATH configuration
+# Optional Desktop shortcut if ~/Desktop exists
+if [ -d "$HOME/Desktop" ]; then
+    cp "$APPS_DIR/sweepx.desktop" "$HOME/Desktop/sweepx.desktop"
+    chmod +x "$HOME/Desktop/sweepx.desktop"
+    if command -v gio >/dev/null 2>&1; then
+        gio set "$HOME/Desktop/sweepx.desktop" metadata::trusted true 2>/dev/null || true
+    fi
+fi
+
+# 9. Check PATH configuration
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
     echo -e "${YELLOW}Notice: $INSTALL_DIR is not in your PATH.${NC}"
     
-    # Try adding to ~/.bashrc or ~/.zshrc
     if [ -f "$HOME/.bashrc" ]; then
-        echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
-        echo -e "Added ~/.local/bin to ~/.bashrc"
+        if ! grep -q 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.bashrc"; then
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.bashrc"
+            echo -e "Added ~/.local/bin to ~/.bashrc"
+        fi
     fi
     if [ -f "$HOME/.zshrc" ]; then
-        echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc"
-        echo -e "Added ~/.local/bin to ~/.zshrc"
+        if ! grep -q 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.zshrc"; then
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc"
+            echo -e "Added ~/.local/bin to ~/.zshrc"
+        fi
+    fi
+    if [ -f "$HOME/.profile" ]; then
+        if ! grep -q 'export PATH="$HOME/.local/bin:$PATH"' "$HOME/.profile"; then
+            echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.profile"
+            echo -e "Added ~/.local/bin to ~/.profile"
+        fi
     fi
 fi
 
@@ -154,7 +213,11 @@ echo -e "\n${GREEN}====================================================${NC}"
 echo -e "${GREEN}  🎉 SweepX was successfully installed!             ${NC}"
 echo -e "${GREEN}====================================================${NC}"
 echo -e "Binary installed at: ${BLUE}$INSTALL_DIR/$BINARY_NAME${NC}"
-echo -e "Desktop launcher at: ${BLUE}$APPS_DIR/sweepx.desktop${NC}"
-echo -e "\nTo run SweepX GUI:   ${GREEN}sweepx${NC}"
-echo -e "To run CLI scan:     ${GREEN}sweepx list${NC}"
-echo -e "To check updates:    ${GREEN}sweepx update${NC}\n"
+echo -e "Icon installed at:   ${BLUE}$ICONS_DIR/sweepx.svg${NC}"
+echo -e "App launcher at:     ${BLUE}$APPS_DIR/sweepx.desktop${NC}"
+if [ -d "$HOME/Desktop" ]; then
+    echo -e "Desktop shortcut at: ${BLUE}$HOME/Desktop/sweepx.desktop${NC}"
+fi
+echo -e "\n🚀 Run from terminal: ${GREEN}sweepx${NC}"
+echo -e "📦 CLI app listing:   ${GREEN}sweepx list${NC}"
+echo -e "🔄 Check updates:     ${GREEN}sweepx update${NC}\n"

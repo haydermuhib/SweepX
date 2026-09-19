@@ -2,7 +2,7 @@
 name = "sweepx"
 version = "0.1.0"
 edition = "2024"
-authors = ["SweepX Contributors"]
+authors = ["Haider Ali Tariq <ha344563219@gmail.com>", "SweepX Contributors"]
 description = "Unified Linux Application Tracker & Deep Uninstaller"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/haydermuhib/SweepX"
