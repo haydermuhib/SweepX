@@ -78,6 +78,13 @@ pub enum Commands {
         #[arg(required = true, num_args = 1..)]
         command: Vec<String>,
     },
+
+    /// Check for GitHub releases and update SweepX to the latest version
+    Update {
+        /// Check if an update is available without installing
+        #[arg(short, long)]
+        check: bool,
+    },
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]

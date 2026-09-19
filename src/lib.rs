@@ -5,6 +5,7 @@ pub mod models;
 pub mod scanner;
 pub mod tracker;
 pub mod ui;
+pub mod updater;
 
 pub use cleaner::*;
 pub use cli::*;
@@ -14,3 +15,4 @@ pub use scanner::*;
 pub use tracker::*;
 pub use ui::SweepXApp;
 pub use ui::Theme;
+pub use updater::*;

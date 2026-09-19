@@ -29,6 +29,8 @@ pub enum ActiveTab {
 pub enum AsyncMessage {
     ScanBatchReceived(ScanStageBatch),
     ScanFinished,
+    UpdateAvailable(crate::updater::UpdateInfo),
+    UpdateComplete(String),
     ResidualsFound(Application, Vec<ResidualCandidate>),
     PurgeComplete(String, u64),
     HistoryLoaded(Vec<AuditLogEntry>),
@@ -70,6 +72,10 @@ pub struct SweepXApp {
 
     is_scanning: bool,
     scan_status: Option<String>,
+
+    available_update: Option<crate::updater::UpdateInfo>,
+    is_updating_app: bool,
+    update_message: Option<String>,
 }
 
 impl SweepXApp {
@@ -105,11 +111,26 @@ impl SweepXApp {
             purge_status: None,
             is_scanning: false,
             scan_status: None,
+            available_update: None,
+            is_updating_app: false,
+            update_message: None,
         };
 
         app.trigger_refresh();
         app.trigger_sweep_scan();
+        app.trigger_update_check();
         app
+    }
+
+    pub fn trigger_update_check(&mut self) {
+        let tx = self.tx.clone();
+        self.rt.spawn(async move {
+            if let Ok(info) = crate::updater::check_for_updates().await {
+                if info.has_update {
+                    let _ = tx.send(AsyncMessage::UpdateAvailable(info));
+                }
+            }
+        });
     }
 
     pub fn trigger_refresh(&mut self) {
@@ -203,6 +224,13 @@ impl SweepXApp {
                         let _ = db.save_apps(&self.apps);
                     }
                 }
+                AsyncMessage::UpdateAvailable(info) => {
+                    self.available_update = Some(info);
+                }
+                AsyncMessage::UpdateComplete(msg) => {
+                    self.is_updating_app = false;
+                    self.update_message = Some(msg);
+                }
                 AsyncMessage::ResidualsFound(app, residuals) => {
                     if self.show_clean_modal && self.cleaning_app.as_ref().map(|a| &a.id) == Some(&app.id) {
                         self.cleaning_residuals = residuals.clone();
@@ -242,8 +270,80 @@ impl eframe::App for SweepXApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_async_messages();
 
-        if self.is_scanning {
+        if self.is_scanning || self.is_updating_app {
             ctx.request_repaint();
+        }
+
+        if let Some(ref update) = self.available_update {
+            egui::TopBottomPanel::top("update_banner").show(ctx, |ui| {
+                ui.add_space(4.0_f32);
+                egui::Frame::none()
+                    .fill(Theme::PRIMARY_MUTED)
+                    .inner_margin(8.0_f32)
+                    .rounding(4.0_f32)
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(format!(
+                                    "🚀 Update Available: v{} → v{}",
+                                    update.current_version, update.latest_version
+                                ))
+                                .strong()
+                                .color(Color32::WHITE),
+                            );
+
+                            if let Some(ref url) = update.download_url {
+                                let dl_url = url.clone();
+                                let tx = self.tx.clone();
+                                if ui
+                                    .button(
+                                        RichText::new(if self.is_updating_app {
+                                            "⏳ Updating..."
+                                        } else {
+                                            "⚡ Install Update"
+                                        })
+                                        .color(Theme::BG_DARK)
+                                        .strong(),
+                                    )
+                                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                    .clicked()
+                                    && !self.is_updating_app
+                                {
+                                    self.is_updating_app = true;
+                                    self.rt.spawn(async move {
+                                        match crate::updater::perform_self_update(&dl_url).await {
+                                            Ok(p) => {
+                                                let _ = tx.send(AsyncMessage::UpdateComplete(format!(
+                                                    "Updated to latest release at {}! Please restart SweepX.",
+                                                    p.display()
+                                                )));
+                                            }
+                                            Err(e) => {
+                                                let _ = tx.send(AsyncMessage::UpdateComplete(format!(
+                                                    "Update failed: {}",
+                                                    e
+                                                )));
+                                            }
+                                        }
+                                    });
+                                }
+                            }
+
+                            if ui
+                                .button(RichText::new("🔗 View Release").color(Theme::TEXT_PRIMARY))
+                                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                .clicked()
+                            {
+                                let _ = open::that(&update.html_url);
+                            }
+
+                            if let Some(ref msg) = self.update_message {
+                                ui.label(RichText::new(msg).color(Theme::ACCENT_SUCCESS).strong());
+                            }
+                        });
+                    });
+                ui.add_space(4.0_f32);
+            });
         }
 
         egui::TopBottomPanel::top("top_header").show(ctx, |ui| {

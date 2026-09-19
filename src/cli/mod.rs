@@ -344,6 +344,57 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
             println!("  • Total Footprint: {}", format_size(manifest.total_size_bytes));
             println!("\n✨ This application can now be 100% cleanly purged anytime via 'sweepx purge {}'!", app_id);
         }
+        Commands::Update { check } => {
+            println!("🔍 Checking for SweepX updates on GitHub (haydermuhib/SweepX)...");
+            match crate::updater::check_for_updates().await {
+                Ok(update_info) => {
+                    println!("  • Current version: v{}", update_info.current_version);
+                    println!("  • Latest version:  v{}", update_info.latest_version);
+
+                    if !update_info.has_update {
+                        println!("\n✨ SweepX is already up to date! (v{})", update_info.current_version);
+                        return Ok(());
+                    }
+
+                    println!(
+                        "\n🚀 New update available: v{} → v{}!",
+                        update_info.current_version, update_info.latest_version
+                    );
+                    if !update_info.release_notes.is_empty() {
+                        println!("\n📋 Release Notes:\n{}", update_info.release_notes.trim());
+                    }
+                    println!("🔗 Release URL: {}", update_info.html_url);
+
+                    if check {
+                        println!("\n💡 Run 'sweepx update' to install the latest release automatically.");
+                        return Ok(());
+                    }
+
+                    if let Some(ref download_url) = update_info.download_url {
+                        println!("\n📥 Downloading and installing latest release binary...");
+                        match crate::updater::perform_self_update(download_url).await {
+                            Ok(updated_path) => {
+                                println!(
+                                    "🎉 Successfully updated SweepX to v{} at {}!",
+                                    update_info.latest_version,
+                                    updated_path.display()
+                                );
+                            }
+                            Err(e) => {
+                                eprintln!("❌ Update installation failed: {}", e);
+                                eprintln!("💡 Fallback: Run the 1-line installer: curl -fsSL https://raw.githubusercontent.com/haydermuhib/SweepX/main/install.sh | bash");
+                            }
+                        }
+                    } else {
+                        println!("\n⚠️ No matching precompiled binary asset found for this architecture in release.");
+                        println!("💡 You can update via curl installer: curl -fsSL https://raw.githubusercontent.com/haydermuhib/SweepX/main/install.sh | bash");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("⚠️ Failed to check for updates: {}", e);
+                }
+            }
+        }
     }
 
     Ok(())
