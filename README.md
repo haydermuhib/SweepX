@@ -1,102 +1,121 @@
 # SweepX
 
-**Unified Linux application tracker, live installation watcher, and deep uninstaller.**
+> Unified Linux application tracker, live installation watcher, and deep residual uninstaller in pure Rust.
 
-[![Rust](https://img.shields.io/badge/rust-edition%202024-orange.svg)](https://www.rust-lang.org/)
-[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux-green.svg)](#quick-installation)
+[![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue.svg)](LICENSE-MIT)
+[![Build Status](https://github.com/haydermuhib/SweepX/actions/workflows/release.yml/badge.svg)](https://github.com/haydermuhib/SweepX/actions)
+[![Language: Rust](https://img.shields.io/badge/language-Rust%202024-orange.svg)](https://www.rust-lang.org/)
+[![Showcase](https://img.shields.io/badge/Showcase-GitHub%20Pages-success.svg)](https://haydermuhib.github.io/SweepX/)
 
-SweepX is a standalone Linux desktop utility written in pure Rust. It tracks applications across native package managers, container formats, and manual directory installations, with tools to inspect file footprints, record live installs, optimize container storage, and completely remove applications and leftover caches.
+SweepX brings native packages (dpkg, pacman, rpm), Flatpaks, Snaps, standalone AppImages, and manual installations in `/opt` into one interface. It tracks manual builds in real time and strips leftover caches, configs, and orphaned background services when software is removed.
+
+---
+
+## Quick navigation
+
+- [Interactive Showcase](https://haydermuhib.github.io/SweepX/)
+- [Quick Installation](#quick-installation)
+- [Key Features](#key-features)
+- [Command-Line Interface](#command-line-interface)
+- [Building from Source](#building-from-source)
+- [Architecture & Contributor Guide](ARCHITECTURE.md)
+- [LLM Specification](llms.txt)
+- [License](#license)
 
 ---
 
 ## Quick installation
 
-### One-line installer (All Linux distributions)
+### Universal 1-line installer (all Linux distributions)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/haydermuhib/SweepX/main/install.sh | bash
 ```
 
-The script detects your CPU architecture (`x86_64` or `aarch64`), installs the binary to `~/.local/bin/sweepx`, and registers a desktop launcher in your applications menu.
+The script detects your architecture (`x86_64` or `aarch64`), fetches the latest prebuilt release binary, installs vector desktop icons, creates application menu launchers, and sets up your terminal `PATH`. If prebuilt binaries are unavailable, it offers an automatic source compilation fallback.
 
 ---
 
-## Core capabilities
+## Key features
 
-### 1. Unified cross-tier application tracker
-SweepX scans packaging layers concurrently and streams results to the interface in real time:
-- **Native package managers:** APT (Debian/Ubuntu/Mint), DNF/RPM (Fedora/RHEL), and Pacman (Arch/Manjaro).
-- **Container runtimes:** Flatpak (`~/.var/app/`) and Snap (`~/snap/`).
-- **Manual and portable apps:** Standalone AppImages (in `~/Applications`, `~/Downloads`, and `~/Desktop`), `/opt` suites, and custom user binaries in `~/.local/bin`.
+### 1. Unified package tracker
+Discovers and tracks software across multiple packaging systems simultaneously:
+- **Native packages:** Debian/Ubuntu (APT/dpkg), Fedora/RHEL (DNF/RPM), and Arch Linux (Pacman).
+- **Container runtimes:** Flatpak user and system installations, plus active Snap packages.
+- **Standalone binaries:** Portable AppImages and unmanaged software installed in `/opt` or `~/.local/bin`.
 
-### 2. Live install watch (Snapshot engine)
-When compiling software from source or running manual install scripts (`./install.sh`, `make install`, `cargo install`):
+### 2. Live installation watcher
+Tracks manual source builds (`make install`, custom installer scripts) in real time. SweepX records filesystem snapshot diffs and stores an exact manifest, allowing complete, zero-loss uninstallation later:
 ```bash
-sweepx watch --name "my-tool" sudo make install
+sweepx watch --name "my-tool" -- sudo make install
 ```
-SweepX records a point-in-time filesystem diff before and after installation, saves an exact file manifest to its database, and allows you to cleanly remove every created file later.
 
-### 3. Symlink graph resolver
-Scans `~/.local/bin`, `/usr/local/bin`, and `~/.local/share/applications` to resolve symlink targets in `/opt` and detect broken symlinks. When uninstalling an application, SweepX unlinks pointing symlinks across your PATH.
+### 3. Deep residual hunter
+Traditional package managers often leave user configuration directories, caches, and systemd units behind on disk. SweepX scans and purges:
+- XDG configuration trees (`~/.config/<app>`)
+- Application caches (`~/.cache/<app>`)
+- Data directories (`~/.local/share/<app>`)
+- User-level background services (`~/.config/systemd/user/<app>.service`)
+- Dangling and broken symlinks in `/usr/local/bin` and `~/.local/bin`
 
-### 4. Container and system optimizer
-- **Snap revisions:** Prunes old, disabled revisions from `/var/lib/snapd/snaps/`.
-- **Flatpak runtimes:** Removes unused runtime platforms via `flatpak uninstall --unused`.
+### 4. System optimization sweep
+Finds and reclaims disk space from obsolete runtime files:
+- **Snap revisions:** Prunes disabled and old Snap revisions.
+- **Flatpak runtimes:** Removes unreferenced runtime dependencies and temporary run data.
 - **Package caches:** Cleans APT, DNF, and Pacman download caches.
-- **Installer archives:** Flags bulky `.iso`, `.zip`, and `.tar.gz` installer downloads in `~/Downloads`.
+- **Bulky installer archives:** Flags lingering `.iso`, `.zip`, and `.tar.gz` downloads in `~/Downloads`.
 
 ### 5. AppImage desktop integration
-Inspects AppImages, extracts embedded `.DirIcon` assets into `~/.local/share/icons`, and generates valid XDG `.desktop` launchers with a single click.
+Inspects AppImages, extracts embedded `.DirIcon` assets into `~/.local/share/icons`, and generates valid XDG `.desktop` application menu launchers with one click.
 
-### 6. Strict safety rules
-- **Protected paths:** Deletion is blocked for root and system directories (`/`, `/usr`, `/etc`, `/home`, `~/.config`).
-- **FreeDesktop Trash:** Moves residual files to the desktop Trash by default, with an optional permanent deletion mode.
-- **PolicyKit integration:** Uses `pkexec` graphical prompts for system operations with a terminal `sudo` fallback.
+### 6. Multi-tier safety barrier
+- **Protected paths:** Deletions targeting root, user home roots (`/home/$USER`), `/usr`, `/etc`, or `/var` are strictly blocked.
+- **FreeDesktop Trash:** Moves residual files to the desktop Trash by default, with an optional permanent purge mode.
+- **PolicyKit integration:** Uses `pkexec` graphical prompts for system operations with terminal `sudo` fallback.
 
 ---
 
 ## Command-line interface
 
-Launch the GUI by running `sweepx` or `sweepx gui`. For terminal workflows, the following subcommands are available:
+Launch the graphical dashboard with `sweepx`. For terminal automation and scripts, the following subcommands are available:
 
 ```bash
-# List all installed applications
+# List all installed software
 sweepx list
 
-# Filter applications by packaging category
-sweepx list --category flatpak
-sweepx list --category appimage
-sweepx list --category native
+# Filter applications by packaging tier
+sweepx list --filter flatpak
+sweepx list --filter appimage
+sweepx list --filter native
 
-# Output application records in JSON format
+# Output records as machine-readable JSON
 sweepx list --json
 
-# Inspect an application's executable, launcher, and leftover files
+# Inspect an application, its launchers, dependencies, and caches
 sweepx inspect obsidian
 
-# Deep-clean an application (moves leftover caches and configs to Trash)
-sweepx purge slack
+# Clean leftover residual caches and configs
+sweepx clean slack
 
-# Perform a dry run without deleting files
-sweepx purge slack --dry-run
+# Dry-run residual cleanup without touching disk
+sweepx clean slack --dry-run
 
-# Purge permanently without moving to Trash
-sweepx purge slack --permanent
+# Purge an unmanaged /opt or AppImage installation
+sweepx purge custom-tool
 
-# Watch and record a manual installation command
-sweepx watch --name "neovim-nightly" make install
+# Watch and record an installation command
+sweepx watch --name "neovim-nightly" -- sudo make install
 
-# Scan and clean container bloat, package caches, and broken symlinks
+# Scan and clean system bloat (Snap revisions, Flatpak runtimes, caches)
 sweepx sweep
 sweepx sweep --dry-run
 
-# View uninstallation history
+# View uninstallation audit history and lifetime reclaimed space
 sweepx history
 
-# Check for updates from GitHub and self-update
-sweepx update
+# Check for updates on GitHub and self-update
 sweepx update --check
+sweepx update
 ```
 
 <details>
@@ -104,19 +123,21 @@ sweepx update --check
 
 | Subcommand | Flag / Option | Description |
 | :--- | :--- | :--- |
-| `list` | `--category <type>` | Filter by `all`, `native`, `flatpak`, `snap`, `appimage`, or `manual` |
-| `list` | `-s, --all-system` | Include system libraries and core runtimes |
-| `list` | `--json` | Output results as JSON |
-| `inspect` | `<app_id>` | Display binaries, launchers, dependencies, and discovered configs |
-| `purge` | `<app_id>` | Remove package and clean associated user files |
-| `purge` | `--dry-run` | Preview files to be removed without deleting |
-| `purge` | `--permanent` | Delete files directly instead of moving to Trash |
+| `list` | `--filter <type>` | Filter by `native`, `flatpak`, `snap`, `appimage`, or `manual` |
+| `list` | `-s, --all-system` | Include core system libraries and dependencies |
+| `list` | `--json` | Output results in JSON format |
+| `inspect` | `<app_id>` | Display binary paths, launchers, and discovered residual files |
+| `clean` | `<app_id>` | Remove leftover user caches, configs, and systemd units |
+| `clean` | `--dry-run` | Preview files to be removed without deleting |
+| `clean` | `--permanent` | Delete files directly instead of moving to Trash |
+| `clean` | `--yes` | Skip confirmation prompt |
+| `purge` | `<app_id>` | Remove unmanaged software binary and all related artifacts |
 | `watch` | `-n, --name <name>` | Application identifier for the recorded manifest |
-| `watch` | `<command...>` | Installation command to execute |
+| `watch` | `<command...>` | Installation command to execute and monitor |
 | `sweep` | `--dry-run` | Scan reclaimable container revisions and caches without deleting |
 | `sweep` | `--json` | Output reclaimable items in JSON |
-| `history` | None | Print chronological audit log of past uninstalls |
-| `update` | `--check` | Check GitHub releases without updating |
+| `history` | None | Print chronological audit log of past uninstalls and space saved |
+| `update` | `--check` | Check GitHub releases without downloading |
 
 </details>
 
@@ -126,14 +147,15 @@ sweepx update --check
 
 ### Prerequisites
 - Linux (`x86_64` or `aarch64`)
-- Rust toolchain (2024 edition / 1.85+)
+- Rust toolchain (1.85+ / 2024 edition)
+- Graphics libraries: `libx11-dev`, `libxcursor-dev`, `libxrandr-dev`, `libxi-dev`, `libgl1-mesa-dev`, `libxkbcommon-dev`, `libwayland-dev`
 
 ```bash
 # Clone the repository
 git clone https://github.com/haydermuhib/SweepX.git
 cd SweepX
 
-# Run test suite
+# Run test suite (30 unit & integration tests)
 cargo test
 
 # Build optimized release binary
@@ -145,19 +167,19 @@ cargo build --release
 
 ---
 
-## Architecture
+## Architecture overview
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    SweepX Entrypoint                        │
-│                 (Dual Mode: GUI / CLI)                      │
+│                      SweepX Entrypoint                      │
+│                   (Dual Mode: GUI / CLI)                    │
 └──────────────────────────────┬──────────────────────────────┘
                                │
                ┌───────────────┴───────────────┐
                ▼                               ▼
    ┌───────────────────────┐       ┌───────────────────────┐
-   │    eframe / egui      │       │     clap CLI Runner   │
-   │   Desktop GUI App     │       │     (Subcommands)     │
+   │     eframe / egui     │       │    clap CLI Runner    │
+   │    Desktop GUI App    │       │     (Subcommands)     │
    └───────────┬───────────┘       └───────────┬───────────┘
                │                               │
                └───────────────┬───────────────┘
@@ -180,23 +202,22 @@ cargo build --release
 └──────────────┘└──────────────┘└────────────┘└────────────┘└─────────────┘
 ```
 
-<details>
-<summary><b>📋 Packaging tier comparison</b></summary>
+For complete subsystem diagrams, sequence flows, and contributor guides, see **[ARCHITECTURE.md](ARCHITECTURE.md)**.
 
-| Packaging tier | Discovery method | Residual locations | Uninstallation mechanism |
-| :--- | :--- | :--- | :--- |
-| **Native (APT/DNF/Pacman)** | Package manager database query + `.desktop` entries | `~/.config`, `~/.cache`, `~/.local/share` | Package manager command (`apt purge`, `dnf remove`, `pacman -Rns`) |
-| **Flatpak** | `flatpak list --app` | `~/.var/app/<id>/` | `flatpak uninstall <id>` |
-| **Snap** | `snap list` | `~/snap/<id>/`, `/var/snap/<id>/` | `snap remove <id>` |
-| **AppImage** | Directory scans in `~/Applications`, `~/Downloads`, `~/Desktop` | `~/.config/<name>`, `~/.local/share/applications/` | Direct binary deletion + unlinking `.desktop` launcher |
-| **Manual /opt** | Directory inspection in `/opt`, symlink resolution | `/opt/<app>`, `~/.local/bin/<symlink>` | Coordinated directory purge + PATH unlinking |
+---
 
-</details>
+## Documentation & resources
+
+- **Showcase Website:** [https://haydermuhib.github.io/SweepX/](https://haydermuhib.github.io/SweepX/)
+- **Contributor Architecture:** [ARCHITECTURE.md](ARCHITECTURE.md)
+- **Machine Documentation:** [llms.txt](llms.txt)
 
 ---
 
 ## License
 
-SweepX is distributed under the terms of both the MIT license and the Apache License (Version 2.0).
+Dual-licensed under either:
+- **MIT License** ([LICENSE-MIT](LICENSE-MIT))
+- **Apache License, Version 2.0** ([LICENSE-APACHE](LICENSE-APACHE))
 
-See [LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE) for details.
+Copyright © Haider Ali Tariq and SweepX Contributors.
