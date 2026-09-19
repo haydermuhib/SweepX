@@ -17,7 +17,7 @@ pub use manual::{calculate_dir_size, scan_manual_installations};
 pub use native::{
     detect_available_package_managers, AptManager, DnfManager, NativeBackend, PacmanManager,
 };
-pub use orchestrator::scan_all_applications;
+pub use orchestrator::{apply_stage_batch, scan_all_applications, ScanStageBatch};
 pub use snap::{parse_snap_list_output, scan_snaps};
 pub use symlink_graph::{
     find_broken_symlinks, find_symlinks_pointing_to_app, scan_symlink_graph, SymlinkRecord,

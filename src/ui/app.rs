@@ -9,9 +9,13 @@ use crate::cleaner::{
 };
 use crate::db::{AuditLogEntry, Database};
 use crate::models::{Application, ResidualCandidate};
-use crate::scanner::scan_all_applications;
+use crate::scanner::{
+    apply_stage_batch, detect_available_package_managers, scan_desktop_entries, scan_flatpaks,
+    scan_manual_installations, scan_snaps, ScanStageBatch,
+};
 use chrono::Utc;
 use eframe::egui::{self, Align, Color32, Layout, RichText, Stroke};
+use std::collections::HashMap;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use tokio::runtime::Runtime;
 
@@ -23,7 +27,8 @@ pub enum ActiveTab {
 }
 
 pub enum AsyncMessage {
-    AppsScanned(Vec<Application>),
+    ScanBatchReceived(ScanStageBatch),
+    ScanFinished,
     ResidualsFound(Application, Vec<ResidualCandidate>),
     PurgeComplete(String, u64),
     HistoryLoaded(Vec<AuditLogEntry>),
@@ -37,6 +42,7 @@ pub struct SweepXApp {
     tx: Sender<AsyncMessage>,
     rx: Receiver<AsyncMessage>,
 
+    app_map: HashMap<String, Application>,
     apps: Vec<Application>,
     history_logs: Vec<AuditLogEntry>,
     sweep_items: Vec<SystemSweepItem>,
@@ -63,6 +69,7 @@ pub struct SweepXApp {
     purge_status: Option<String>,
 
     is_scanning: bool,
+    scan_status: Option<String>,
 }
 
 impl SweepXApp {
@@ -75,6 +82,7 @@ impl SweepXApp {
             rt,
             tx,
             rx,
+            app_map: HashMap::new(),
             apps: Vec::new(),
             history_logs: Vec::new(),
             sweep_items: Vec::new(),
@@ -96,6 +104,7 @@ impl SweepXApp {
             is_purging: false,
             purge_status: None,
             is_scanning: false,
+            scan_status: None,
         };
 
         app.trigger_refresh();
@@ -105,19 +114,57 @@ impl SweepXApp {
 
     pub fn trigger_refresh(&mut self) {
         self.is_scanning = true;
+        self.scan_status = Some("Starting live scanner...".to_string());
+        self.app_map.clear();
+        self.apps.clear();
+
         let tx = self.tx.clone();
 
         self.rt.spawn(async move {
-            let apps = scan_all_applications().await;
+            let tx1 = tx.clone();
+            let t1 = tokio::spawn(async move {
+                let apps = scan_desktop_entries().await;
+                let _ = tx1.send(AsyncMessage::ScanBatchReceived(ScanStageBatch::Desktop(apps)));
+            });
 
-            if let Ok(mut db) = Database::open_default() {
-                let _ = db.save_apps(&apps);
+            let tx2 = tx.clone();
+            let t2 = tokio::spawn(async move {
+                let apps = scan_manual_installations().await;
+                let _ = tx2.send(AsyncMessage::ScanBatchReceived(ScanStageBatch::Manual(apps)));
+            });
+
+            let tx3 = tx.clone();
+            let t3 = tokio::spawn(async move {
+                let apps = scan_snaps().await;
+                let _ = tx3.send(AsyncMessage::ScanBatchReceived(ScanStageBatch::Snap(apps)));
+            });
+
+            let tx4 = tx.clone();
+            let t4 = tokio::spawn(async move {
+                let apps = scan_flatpaks().await;
+                let _ = tx4.send(AsyncMessage::ScanBatchReceived(ScanStageBatch::Flatpak(apps)));
+            });
+
+            let tx5 = tx.clone();
+            let t5 = tokio::spawn(async move {
+                let pms = detect_available_package_managers();
+                let mut native_apps = Vec::new();
+                for pm in pms {
+                    let mut a = pm.list_installed().await;
+                    native_apps.append(&mut a);
+                }
+                let _ = tx5.send(AsyncMessage::ScanBatchReceived(ScanStageBatch::Native(native_apps)));
+            });
+
+            let _ = tokio::join!(t1, t2, t3, t4, t5);
+
+            if let Ok(db) = Database::open_default() {
                 if let Ok(history) = db.get_audit_history() {
                     let _ = tx.send(AsyncMessage::HistoryLoaded(history));
                 }
             }
 
-            let _ = tx.send(AsyncMessage::AppsScanned(apps));
+            let _ = tx.send(AsyncMessage::ScanFinished);
         });
     }
 
@@ -143,9 +190,18 @@ impl SweepXApp {
     fn handle_async_messages(&mut self) {
         while let Ok(msg) = self.rx.try_recv() {
             match msg {
-                AsyncMessage::AppsScanned(apps) => {
-                    self.apps = apps;
+                AsyncMessage::ScanBatchReceived(batch) => {
+                    self.scan_status = Some(format!("Discovered {}", batch.stage_name()));
+                    apply_stage_batch(&mut self.app_map, batch);
+                    self.apps = self.app_map.values().cloned().collect();
+                    self.apps.sort_by(|a, b| a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase()));
+                }
+                AsyncMessage::ScanFinished => {
                     self.is_scanning = false;
+                    self.scan_status = None;
+                    if let Ok(mut db) = Database::open_default() {
+                        let _ = db.save_apps(&self.apps);
+                    }
                 }
                 AsyncMessage::ResidualsFound(app, residuals) => {
                     if self.show_clean_modal && self.cleaning_app.as_ref().map(|a| &a.id) == Some(&app.id) {
@@ -185,6 +241,10 @@ impl SweepXApp {
 impl eframe::App for SweepXApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_async_messages();
+
+        if self.is_scanning {
+            ctx.request_repaint();
+        }
 
         egui::TopBottomPanel::top("top_header").show(ctx, |ui| {
             ui.add_space(8.0_f32);
@@ -256,6 +316,8 @@ impl eframe::App for SweepXApp {
                         &mut self.sort_field,
                         &mut self.sort_direction,
                         &mut self.show_system_packages,
+                        self.is_scanning,
+                        self.scan_status.as_deref(),
                         &mut on_inspect,
                         &mut on_clean,
                     );

@@ -37,11 +37,39 @@ impl DashboardView {
         sort_field: &mut SortField,
         sort_direction: &mut SortDirection,
         show_system_packages: &mut bool,
+        is_scanning: bool,
+        scan_status: Option<&str>,
         on_inspect: &mut Option<Application>,
         on_clean: &mut Option<Application>,
     ) {
         Self::render_metrics_header(ui, apps, *show_system_packages);
-        ui.add_space(14.0_f32);
+        ui.add_space(10.0_f32);
+
+        // Live Scanning Progress Banner
+        if is_scanning {
+            egui::Frame::none()
+                .fill(Theme::BG_DARK)
+                .inner_margin(10.0_f32)
+                .rounding(6.0_f32)
+                .stroke(Stroke::new(1.0_f32, Theme::PRIMARY))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.add_space(8.0_f32);
+                        let status = scan_status.unwrap_or("Scanning packaging tiers...");
+                        ui.label(
+                            RichText::new(format!("⚡ Live Scan: {} — {} applications discovered", status, apps.len()))
+                                .color(Theme::ACCENT_CYAN)
+                                .strong()
+                                .size(13.0_f32),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(RichText::new("Populating in real-time").color(Theme::TEXT_MUTED).size(11.0_f32));
+                        });
+                    });
+                });
+            ui.add_space(8.0_f32);
+        }
 
         // 1. Search Bar & Filter Chips
         ui.horizontal(|ui| {

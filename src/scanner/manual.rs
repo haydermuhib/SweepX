@@ -51,6 +51,8 @@ pub async fn scan_manual_installations() -> Vec<Application> {
             custom_scan_dirs.push(home.join(".local/bin"));
             custom_scan_dirs.push(home.join("Applications"));
             custom_scan_dirs.push(home.join("bin"));
+            custom_scan_dirs.push(home.join("Downloads"));
+            custom_scan_dirs.push(home.join("Desktop"));
         }
 
         for dir in custom_scan_dirs {
@@ -155,7 +157,7 @@ pub async fn scan_manual_installations() -> Vec<Application> {
     .unwrap_or_default()
 }
 
-/// Recursively calculates the byte size of a directory.
+/// Recursively calculates the byte size of a directory with depth limit.
 pub fn calculate_dir_size(path: &Path) -> u64 {
     if !path.exists() {
         return 0;
@@ -164,6 +166,7 @@ pub fn calculate_dir_size(path: &Path) -> u64 {
         return std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
     }
     WalkDir::new(path)
+        .max_depth(5)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter_map(|e| e.metadata().ok())

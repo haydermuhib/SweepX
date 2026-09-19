@@ -12,6 +12,7 @@ pub enum SweepCategory {
     NativeOrphanDependencies,
     BrokenSymlinks,
     SystemUserCache,
+    InstallerArchives,
 }
 
 impl SweepCategory {
@@ -23,6 +24,7 @@ impl SweepCategory {
             Self::NativeOrphanDependencies => "Orphaned Package Dependencies",
             Self::BrokenSymlinks => "Dangling & Broken Symlinks",
             Self::SystemUserCache => "Thumbnail & User Cache",
+            Self::InstallerArchives => "Installer Archives & Disk Images",
         }
     }
 
@@ -34,6 +36,7 @@ impl SweepCategory {
             Self::NativeOrphanDependencies => "🔗",
             Self::BrokenSymlinks => "⛓️",
             Self::SystemUserCache => "🖼️",
+            Self::InstallerArchives => "📥",
         }
     }
 }
@@ -191,6 +194,60 @@ pub fn scan_native_package_cache() -> Vec<SystemSweepItem> {
     items
 }
 
+/// Scans ~/Downloads for bulky installer archives (.iso, .tar.gz, .zip, .deb, .rpm, .raw)
+pub fn scan_download_installer_archives() -> Vec<SystemSweepItem> {
+    let mut items = Vec::new();
+    if let Some(home) = dirs::home_dir() {
+        let downloads_dir = home.join("Downloads");
+        if downloads_dir.exists() && downloads_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&downloads_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() {
+                        let file_name = path
+                            .file_name()
+                            .map(|s| s.to_string_lossy().to_string())
+                            .unwrap_or_default();
+                        let lower = file_name.to_lowercase();
+
+                        let is_installer_or_disk_image = lower.ends_with(".iso")
+                            || lower.ends_with(".img")
+                            || lower.ends_with(".ipa")
+                            || lower.ends_with(".deb")
+                            || lower.ends_with(".rpm")
+                            || lower.ends_with(".tar.gz")
+                            || lower.ends_with(".tar.xz")
+                            || lower.ends_with(".zip");
+
+                        if is_installer_or_disk_image {
+                            if let Ok(meta) = path.metadata() {
+                                let size = meta.len();
+                                // Surface files >= 10MB to highlight significant disk reclaim
+                                if size >= 10 * 1024 * 1024 {
+                                    items.push(SystemSweepItem {
+                                        id: format!("download-archive-{}", path.display()),
+                                        title: format!("Installer Archive: {}", file_name),
+                                        category: SweepCategory::InstallerArchives,
+                                        description: format!(
+                                            "Bulky installer archive / disk image in ~/Downloads ({})",
+                                            crate::models::format_size(size)
+                                        ),
+                                        reclaimable_bytes: size,
+                                        paths: vec![path],
+                                        command: None,
+                                        selected: false,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    items
+}
+
 /// Discovers all sweepable items across system, container, and cache tiers.
 pub async fn scan_all_sweep_items() -> Vec<SystemSweepItem> {
     let mut all_items = Vec::new();
@@ -214,17 +271,14 @@ pub async fn scan_all_sweep_items() -> Vec<SystemSweepItem> {
             .await
         {
             if out.status.success() {
-                // If flatpak is present, check for unused runtimes
-                // We provide the dedicated flatpak uninstall --unused action
                 let stdout = String::from_utf8_lossy(&out.stdout);
                 if !stdout.trim().is_empty() {
-                    // Item for Flatpak unused runtimes
                     all_items.push(SystemSweepItem {
                         id: "flatpak-unused-runtimes".to_string(),
                         title: "Flatpak Unused Runtimes & Extensions".to_string(),
                         category: SweepCategory::FlatpakUnusedRuntimes,
                         description: "Prune all orphaned Flatpak runtime platforms no longer used by installed applications".to_string(),
-                        reclaimable_bytes: 0, // Computed dynamically by flatpak on prune
+                        reclaimable_bytes: 0,
                         paths: vec![],
                         command: Some("flatpak uninstall --unused -y".to_string()),
                         selected: false,
@@ -261,6 +315,9 @@ pub async fn scan_all_sweep_items() -> Vec<SystemSweepItem> {
             selected: true,
         });
     }
+
+    // 5. Bulky installer archives & disk images in ~/Downloads
+    all_items.extend(scan_download_installer_archives());
 
     all_items
 }
