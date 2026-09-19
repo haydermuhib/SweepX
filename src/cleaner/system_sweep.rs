@@ -1,5 +1,8 @@
+use crate::cleaner::SafetyValidator;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use tokio::process::Command;
+use tokio::time::timeout;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SweepCategory {
@@ -239,7 +242,6 @@ pub async fn execute_system_sweep(items: &[SystemSweepItem]) -> SystemSweepRepor
     let mut report = SystemSweepReport::default();
 
     for item in items.iter().filter(|i| i.selected) {
-
         // If a dedicated command is configured (e.g. `snap remove ...` or `apt-get clean`)
         if let Some(ref cmd_str) = item.command {
             let parts: Vec<&str> = cmd_str.split_whitespace().collect();
@@ -247,10 +249,25 @@ pub async fn execute_system_sweep(items: &[SystemSweepItem]) -> SystemSweepRepor
                 let program = parts[0];
                 let args = &parts[1..];
 
-                let success = if program == "snap" || program == "apt-get" || program == "dnf" || program == "pacman" {
-                    crate::cleaner::run_elevated_command(program, args).await.is_ok()
-                } else {
-                    Command::new(program).args(args).output().await.map(|o| o.status.success()).unwrap_or(false)
+                let cmd_fut = async {
+                    if program == "snap" || program == "apt-get" || program == "dnf" || program == "pacman" {
+                        crate::cleaner::run_elevated_command(program, args).await.is_ok()
+                    } else {
+                        Command::new(program)
+                            .args(args)
+                            .output()
+                            .await
+                            .map(|o| o.status.success())
+                            .unwrap_or(false)
+                    }
+                };
+
+                let success = match timeout(Duration::from_secs(60), cmd_fut).await {
+                    Ok(res) => res,
+                    Err(_) => {
+                        report.errors.push(format!("Command timed out after 60s for {}", item.title));
+                        false
+                    }
                 };
 
                 if success {
@@ -261,13 +278,26 @@ pub async fn execute_system_sweep(items: &[SystemSweepItem]) -> SystemSweepRepor
                 }
             }
         } else {
-            // Direct file deletion for cache paths
+            // Direct file deletion for cache paths with SafetyValidator validation
             let mut file_success = true;
             for path in &item.paths {
+                if let Err(violation) = SafetyValidator::is_path_safe_to_delete(path) {
+                    file_success = false;
+                    report.errors.push(format!(
+                        "Safety check blocked cleaning {}: {}",
+                        path.display(),
+                        violation
+                    ));
+                    continue;
+                }
+
                 if path.is_dir() {
                     if let Err(e) = std::fs::remove_dir_all(path) {
                         file_success = false;
                         report.errors.push(format!("Failed to clean {}: {}", path.display(), e));
+                    } else {
+                        // Recreate empty cache directory so desktop environment retains the folder
+                        let _ = std::fs::create_dir_all(path);
                     }
                 } else if path.is_file() {
                     if let Err(e) = std::fs::remove_file(path) {
