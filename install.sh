@@ -11,14 +11,15 @@ BINARY_NAME="sweepx"
 
 # Colors
 GREEN='\033[0;32m'
-BLUE='\033[0;34m'
+CYAN='\033[1;36m'
+PURPLE='\033[1;35m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}====================================================${NC}"
-echo -e "${BLUE}        ⚡ SweepX Linux Installer                   ${NC}"
-echo -e "${BLUE}====================================================${NC}"
+echo -e "${CYAN}====================================================${NC}"
+echo -e "${CYAN}        ⚡ SweepX Linux Installer                   ${NC}"
+echo -e "${CYAN}====================================================${NC}"
 
 # 1. Detect Operating System
 OS="$(uname -s)"
@@ -110,7 +111,7 @@ fi
 if [ "$INSTALLED_SUCCESS" -eq 0 ]; then
     echo -e "${YELLOW}Prebuilt release binary not found on GitHub. Checking for Rust compiler...${NC}"
     if ! command -v cargo >/dev/null 2>&1; then
-        echo -e "${BLUE}Rust is required to build from source. Installing lightweight Rust toolchain via rustup...${NC}"
+        echo -e "${CYAN}Rust is required to build from source. Installing lightweight Rust toolchain via rustup...${NC}"
         if [ "$DOWNLOADER" = "curl" ]; then
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
         else
@@ -225,11 +226,11 @@ fi
 echo -e "\n${GREEN}====================================================${NC}"
 echo -e "${GREEN}  🎉 SweepX was successfully installed!             ${NC}"
 echo -e "${GREEN}====================================================${NC}"
-echo -e "Binary installed at: ${BLUE}$INSTALL_DIR/$BINARY_NAME${NC}"
-echo -e "Icon installed at:   ${BLUE}$ICONS_DIR/sweepx.svg${NC}"
-echo -e "App launcher at:     ${BLUE}$APPS_DIR/sweepx.desktop${NC}"
+echo -e "Binary installed at: ${CYAN}$INSTALL_DIR/$BINARY_NAME${NC}"
+echo -e "Icon installed at:   ${CYAN}$ICONS_DIR/sweepx.svg${NC}"
+echo -e "App launcher at:     ${CYAN}$APPS_DIR/sweepx.desktop${NC}"
 if [ -d "$HOME/Desktop" ]; then
-    echo -e "Desktop shortcut at: ${BLUE}$HOME/Desktop/sweepx.desktop${NC}"
+    echo -e "Desktop shortcut at: ${CYAN}$HOME/Desktop/sweepx.desktop${NC}"
 fi
 echo -e "\n🚀 Run from terminal: ${GREEN}sweepx${NC}"
 echo -e "📦 CLI app listing:   ${GREEN}sweepx list${NC}"

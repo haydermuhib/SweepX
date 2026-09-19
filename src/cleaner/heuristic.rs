@@ -64,8 +64,20 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
             }
         }
 
-        // 2. Exact Path Target Checks in Standard XDG Bases
+        // 2. Exact Path Target Checks in Standard XDG Bases and Home Root Dotdirs
         for anchor in &exact_anchors {
+            // Direct home root dot-directory (e.g. ~/.feynman, ~/.docker, ~/.rustup)
+            if !anchor.is_empty() && anchor != "bash" && anchor != "profile" && anchor != "zsh" && anchor != "config" && anchor != "cache" && anchor != "local" {
+                let dotdir = home_dir.join(format!(".{}", anchor));
+                check_and_add_candidate(
+                    &mut candidates,
+                    &mut seen_paths,
+                    &app_clone,
+                    dotdir,
+                    ArtifactKind::ConfigDir,
+                    0.95,
+                );
+            }
             // ~/.config/<anchor>
             let cfg = config_base.join(anchor);
             check_and_add_candidate(
