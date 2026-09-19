@@ -1,0 +1,40 @@
+[package]
+name = "sweepx"
+version = "0.1.0"
+edition = "2024"
+authors = ["SweepX Contributors"]
+description = "Unified Linux Application Tracker & Deep Uninstaller"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# GUI Framework
+eframe = { version = "0.28", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+egui = "0.28"
+
+# Async & Process Management
+tokio = { version = "1.38", features = ["full"] }
+
+# CLI Parsing
+clap = { version = "4.5", features = ["derive", "cargo"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Local Database
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# Filesystem, Safety & Trash
+trash = "5.1"
+walkdir = "2.5"
+which = "6.0"
+dirs = "5.0"
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1.10"
+freedesktop-desktop-entry = "0.7"
+open = "5.3"
+
+[dev-dependencies]
+tempfile = "3.10"
