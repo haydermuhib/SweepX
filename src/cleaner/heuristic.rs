@@ -21,6 +21,8 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
         let cache_base = home_dir.join(".cache");
         let data_base = home_dir.join(".local/share");
         let state_base = home_dir.join(".local/state");
+        let local_bin_base = home_dir.join(".local/bin");
+        let desktop_base = home_dir.join(".local/share/applications");
 
         // 1. Signature-based matching
         let search_terms = vec![
@@ -31,7 +33,6 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
 
         for term in &search_terms {
             if let Some(sig) = find_signature(term) {
-                // Check configs
                 for &dir in sig.config_dirs {
                     let p = config_base.join(dir);
                     check_and_add_candidate(
@@ -44,7 +45,6 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
                     );
                 }
 
-                // Check cache
                 for &dir in sig.cache_dirs {
                     let p = cache_base.join(dir);
                     check_and_add_candidate(
@@ -57,7 +57,6 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
                     );
                 }
 
-                // Check data
                 for &dir in sig.data_dirs {
                     let p = data_base.join(dir);
                     check_and_add_candidate(
@@ -70,7 +69,6 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
                     );
                 }
 
-                // Check custom user paths
                 for &rel in sig.custom_user_paths {
                     let p = home_dir.join(rel);
                     check_and_add_candidate(
@@ -85,13 +83,14 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
             }
         }
 
-        // 2. Heuristic name and reverse-DNS matching
+        // 2. Heuristic name, reverse-DNS, and slug matching across all user directories
         let slugs = extract_slug_variations(&app_clone);
         let base_dirs = [
             (&config_base, ArtifactKind::ConfigDir),
             (&cache_base, ArtifactKind::CacheDir),
             (&data_base, ArtifactKind::DataDir),
             (&state_base, ArtifactKind::StateDir),
+            (&local_bin_base, ArtifactKind::Binary),
         ];
 
         for (base_dir, kind) in &base_dirs {
@@ -102,12 +101,16 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
             if let Ok(entries) = std::fs::read_dir(base_dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
-                    let folder_name = entry.file_name().to_string_lossy().to_lowercase();
+                    let file_name = entry.file_name().to_string_lossy().to_lowercase();
 
                     for slug in &slugs {
-                        if folder_name == *slug
-                            || folder_name.replace('-', "") == slug.replace('-', "")
-                            || folder_name.replace('_', "") == slug.replace('_', "")
+                        if file_name == *slug
+                            || file_name.replace('-', "") == slug.replace('-', "")
+                            || file_name.replace('_', "") == slug.replace('_', "")
+                            || file_name.starts_with(&format!("{}-", slug))
+                            || file_name.starts_with(&format!("{}_", slug))
+                            || slug.starts_with(&format!("{}-", file_name))
+                            || slug.starts_with(&format!("{}_", file_name))
                         {
                             check_and_add_candidate(
                                 &mut candidates,
@@ -124,7 +127,30 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
             }
         }
 
-        // 3. Flatpak sandbox check: ~/.var/app/<app.id>
+        // 3. Desktop Entry check in ~/.local/share/applications/
+        if desktop_base.exists() {
+            if let Ok(entries) = std::fs::read_dir(&desktop_base) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let name = entry.file_name().to_string_lossy().to_lowercase();
+                    for slug in &slugs {
+                        if name == format!("{}.desktop", slug) || name.contains(slug) {
+                            check_and_add_candidate(
+                                &mut candidates,
+                                &mut seen_paths,
+                                &app_clone,
+                                path.clone(),
+                                ArtifactKind::DesktopEntry,
+                                0.90,
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Flatpak sandbox check: ~/.var/app/<app.id>
         let flatpak_sandbox = home_dir.join(".var/app").join(&app_clone.id);
         if flatpak_sandbox.exists() {
             check_and_add_candidate(
@@ -137,7 +163,7 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
             );
         }
 
-        // 4. Snap sandbox check: ~/snap/<app.name>
+        // 5. Snap sandbox check: ~/snap/<app.name>
         let snap_dir = home_dir.join("snap").join(&app_clone.id);
         if snap_dir.exists() {
             check_and_add_candidate(
@@ -165,6 +191,30 @@ fn extract_slug_variations(app: &Application) -> Vec<String> {
     slugs.insert(id_lower.clone());
     slugs.insert(name_lower.clone());
 
+    // Strip prefixes like "opt-" or "appimage-"
+    if let Some(stripped) = id_lower.strip_prefix("opt-") {
+        slugs.insert(stripped.to_string());
+    }
+    if let Some(stripped) = id_lower.strip_prefix("appimage-") {
+        slugs.insert(stripped.to_string());
+    }
+
+    // Handle dashes & suffixes (e.g. moviebox-tui -> moviebox, moviebox_tui)
+    if name_lower.contains('-') {
+        if let Some(first) = name_lower.split('-').next() {
+            if first.len() > 2 {
+                slugs.insert(first.to_string());
+            }
+        }
+    }
+    if name_lower.contains('_') {
+        if let Some(first) = name_lower.split('_').next() {
+            if first.len() > 2 {
+                slugs.insert(first.to_string());
+            }
+        }
+    }
+
     if id_lower.contains('.') {
         if let Some(last) = id_lower.split('.').last() {
             if !last.is_empty() {
@@ -175,7 +225,13 @@ fn extract_slug_variations(app: &Application) -> Vec<String> {
 
     if let Some(ref exec) = app.exec_path {
         if let Some(stem) = exec.file_stem() {
-            slugs.insert(stem.to_string_lossy().to_lowercase());
+            let s = stem.to_string_lossy().to_lowercase();
+            slugs.insert(s.clone());
+            if s.contains('-') {
+                if let Some(first) = s.split('-').next() {
+                    slugs.insert(first.to_string());
+                }
+            }
         }
     }
 
@@ -236,6 +292,7 @@ pub async fn scan_all_orphaned_residuals(
             (home.join(".config"), ArtifactKind::ConfigDir),
             (home.join(".cache"), ArtifactKind::CacheDir),
             (home.join(".local/share"), ArtifactKind::DataDir),
+            (home.join(".local/state"), ArtifactKind::StateDir),
         ];
 
         for (root, kind) in &scan_roots {
