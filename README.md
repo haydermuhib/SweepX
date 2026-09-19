@@ -206,11 +206,14 @@ For complete subsystem diagrams, sequence flows, and contributor guides, see **[
 
 ---
 
-## Documentation & resources
+## Documentation & Contributing
 
-- **Showcase Website:** [https://haydermuhib.github.io/SweepX/](https://haydermuhib.github.io/SweepX/)
-- **Contributor Architecture:** [ARCHITECTURE.md](ARCHITECTURE.md)
-- **Machine Documentation:** [llms.txt](llms.txt)
+For a comprehensive understanding of the project internals, multi-tier scanning engine, zero-tolerance safety guardrails, and how to contribute:
+
+- 📖 **[ARCHITECTURE.md](ARCHITECTURE.md)** — Complete subsystem breakdown, data flow sequence diagrams, and module responsibilities.
+- 📊 **[PRESENTATION.md](PRESENTATION.md)** — 15-minute architecture slide deck & technical deep dive for contributors and maintainers.
+- 🌐 **[Showcase Website](https://haydermuhib.github.io/SweepX/)** — Interactive landing page, feature showcase, and visual tour.
+- 🤖 **[Machine Documentation](llms.txt)** — Context for AI agents and LLM tooling.
 
 ---
 
