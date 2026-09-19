@@ -63,6 +63,9 @@ pub async fn execute_purge_package(app: &Application) -> Result<String, String> 
         }
         InstallMethod::ManualOpt | InstallMethod::AppImage | InstallMethod::CustomDesktop => {
             // For manual / AppImage, package removal is handled through artifact/directory deletion
+            if let Ok(db) = crate::db::Database::open_default() {
+                let _ = db.delete_install_manifest(&app.id);
+            }
             Ok("Manual installation ready for artifact cleanup".to_string())
         }
     }

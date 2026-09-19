@@ -295,6 +295,55 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
                 }
             }
         }
+        Commands::Watch { name, command } => {
+            if command.is_empty() {
+                eprintln!("❌ No installation command specified.");
+                return Ok(());
+            }
+
+            let full_cmd_str = command.join(" ");
+            println!("📸 Capturing pre-installation filesystem snapshot across system roots...");
+            let pre_snapshot = crate::tracker::FilesystemSnapshot::capture();
+
+            println!("🚀 Executing installation command: '{}'...\n", full_cmd_str);
+            let program = &command[0];
+            let args = &command[1..];
+
+            let status = tokio::process::Command::new(program)
+                .args(args)
+                .status()
+                .await?;
+
+            if !status.success() {
+                eprintln!("\n❌ Installation command failed with exit code: {:?}", status.code());
+                return Ok(());
+            }
+
+            println!("\n📸 Capturing post-installation filesystem snapshot...");
+            let post_snapshot = crate::tracker::FilesystemSnapshot::capture();
+
+            let app_id = name.to_lowercase().replace(' ', "-");
+            let manifest = pre_snapshot.diff(&post_snapshot, &app_id, &name, &full_cmd_str);
+
+            println!("💾 Recording exact installation manifest in SweepX database...");
+            if let Ok(db) = Database::open_default() {
+                let _ = db.save_install_manifest(&manifest);
+            }
+
+            println!("\n🛡️ Install Watch Complete for '{}'!", name);
+            println!("  • Created Files ({}):", manifest.created_files.len());
+            for f in &manifest.created_files {
+                println!("    + {}", f.display());
+            }
+            if !manifest.modified_files.is_empty() {
+                println!("  • Modified Files ({}):", manifest.modified_files.len());
+                for f in &manifest.modified_files {
+                    println!("    ~ {}", f.display());
+                }
+            }
+            println!("  • Total Footprint: {}", format_size(manifest.total_size_bytes));
+            println!("\n✨ This application can now be 100% cleanly purged anytime via 'sweepx purge {}'!", app_id);
+        }
     }
 
     Ok(())

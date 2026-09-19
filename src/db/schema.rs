@@ -25,4 +25,14 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     status TEXT NOT NULL,
     error_details TEXT
 );
+
+CREATE TABLE IF NOT EXISTS install_manifests (
+    app_id TEXT PRIMARY KEY,
+    app_name TEXT NOT NULL,
+    command TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    created_files TEXT NOT NULL,
+    modified_files TEXT NOT NULL,
+    total_size_bytes INTEGER NOT NULL DEFAULT 0
+);
 "#;

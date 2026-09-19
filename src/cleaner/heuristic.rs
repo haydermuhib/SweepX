@@ -24,6 +24,22 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
         let state_base = home_dir.join(".local/state");
         let desktop_base = home_dir.join(".local/share/applications");
 
+        // 0. Check SQLite Install Watcher Manifest (Exact recorded files at install time)
+        if let Ok(db) = crate::db::Database::open_default() {
+            if let Ok(Some(manifest)) = db.get_install_manifest(&app_clone.id) {
+                for created_file in manifest.created_files {
+                    check_and_add_candidate(
+                        &mut candidates,
+                        &mut seen_paths,
+                        &app_clone,
+                        created_file,
+                        ArtifactKind::Binary,
+                        1.0,
+                    );
+                }
+            }
+        }
+
         // 1. Direct Anchor Identifiers (Exact App ID, Executable Stem, and Package Name)
         let mut exact_anchors: Vec<String> = Vec::new();
         exact_anchors.push(app_clone.id.to_lowercase());

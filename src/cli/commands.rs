@@ -67,6 +67,17 @@ pub enum Commands {
         #[arg(long)]
         json: bool,
     },
+
+    /// Watch and record exact filesystem changes during an unmanaged installation (CheckInstall-style)
+    Watch {
+        /// Application name or identifier
+        #[arg(short, long)]
+        name: String,
+
+        /// The installation command and arguments to execute
+        #[arg(required = true, num_args = 1..)]
+        command: Vec<String>,
+    },
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
