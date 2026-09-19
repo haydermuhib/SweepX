@@ -10,6 +10,7 @@ pub enum SweepCategory {
     FlatpakUnusedRuntimes,
     NativePackageCache,
     NativeOrphanDependencies,
+    BrokenSymlinks,
     SystemUserCache,
 }
 
@@ -20,6 +21,7 @@ impl SweepCategory {
             Self::FlatpakUnusedRuntimes => "Flatpak Unused Runtimes",
             Self::NativePackageCache => "Native Package Cache",
             Self::NativeOrphanDependencies => "Orphaned Package Dependencies",
+            Self::BrokenSymlinks => "Dangling & Broken Symlinks",
             Self::SystemUserCache => "Thumbnail & User Cache",
         }
     }
@@ -30,6 +32,7 @@ impl SweepCategory {
             Self::FlatpakUnusedRuntimes => "📦",
             Self::NativePackageCache => "💾",
             Self::NativeOrphanDependencies => "🔗",
+            Self::BrokenSymlinks => "⛓️",
             Self::SystemUserCache => "🖼️",
         }
     }
@@ -233,6 +236,31 @@ pub async fn scan_all_sweep_items() -> Vec<SystemSweepItem> {
 
     // 3. Package caches and user caches
     all_items.extend(scan_native_package_cache());
+
+    // 4. Broken & Dangling Symlinks in ~/.local/bin, /usr/local/bin, and application launchers
+    let broken_symlinks = crate::scanner::symlink_graph::find_broken_symlinks();
+    for sym in broken_symlinks {
+        let file_name = sym
+            .link_path
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_else(|| sym.link_path.display().to_string());
+
+        all_items.push(SystemSweepItem {
+            id: format!("broken-symlink-{}", sym.link_path.display()),
+            title: format!("Broken Symlink: {}", file_name),
+            category: SweepCategory::BrokenSymlinks,
+            description: format!(
+                "Dangling symlink at {} pointing to missing target: {}",
+                sym.link_path.display(),
+                sym.target_path.display()
+            ),
+            reclaimable_bytes: sym.size_bytes,
+            paths: vec![sym.link_path],
+            command: None,
+            selected: true,
+        });
+    }
 
     all_items
 }

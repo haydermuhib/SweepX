@@ -4,6 +4,7 @@ pub mod manual;
 pub mod native;
 pub mod orchestrator;
 pub mod snap;
+pub mod symlink_graph;
 
 pub use desktop_entry::{
     extract_binary_from_exec, get_desktop_entry_directories, parse_desktop_entry_content,
@@ -16,3 +17,6 @@ pub use native::{
 };
 pub use orchestrator::scan_all_applications;
 pub use snap::{parse_snap_list_output, scan_snaps};
+pub use symlink_graph::{
+    find_broken_symlinks, find_symlinks_pointing_to_app, scan_symlink_graph, SymlinkRecord,
+};

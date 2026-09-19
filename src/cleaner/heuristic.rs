@@ -179,6 +179,21 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
             1.0,
         );
 
+        // 5. Stow-Style Symlink Graph: Find any symlinks in ~/.local/bin, /usr/local/bin pointing to this app
+        if let Some(ref exec_path) = app_clone.exec_path {
+            let pointing_symlinks = crate::scanner::symlink_graph::find_symlinks_pointing_to_app(exec_path);
+            for symlink in pointing_symlinks {
+                check_and_add_candidate(
+                    &mut candidates,
+                    &mut seen_paths,
+                    &app_clone,
+                    symlink,
+                    ArtifactKind::Binary,
+                    1.0,
+                );
+            }
+        }
+
         // 5. Binary Executable Path
         if let Some(ref bin) = app_clone.exec_path {
             check_and_add_candidate(
