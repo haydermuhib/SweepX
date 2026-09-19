@@ -1,5 +1,8 @@
 use super::theme::Theme;
-use super::views::{CleanModal, DashboardView, HistoryView, InspectorModal, UiCategoryFilter};
+use super::views::{
+    CleanModal, DashboardView, HistoryView, InspectorModal, SortDirection, SortField,
+    UiCategoryFilter,
+};
 use crate::cleaner::{
     discover_residuals_for_app, execute_purge_package, execute_purge_residuals, DeletionMode,
 };
@@ -36,6 +39,8 @@ pub struct SweepXApp {
     active_tab: ActiveTab,
     search_query: String,
     category_filter: UiCategoryFilter,
+    sort_field: SortField,
+    sort_direction: SortDirection,
     show_system_packages: bool,
 
     // Modal states
@@ -68,6 +73,8 @@ impl SweepXApp {
             active_tab: ActiveTab::Dashboard,
             search_query: String::new(),
             category_filter: UiCategoryFilter::All,
+            sort_field: SortField::Size,
+            sort_direction: SortDirection::Descending,
             show_system_packages: false,
             inspecting_app: None,
             inspecting_residuals: Vec::new(),
@@ -185,6 +192,8 @@ impl eframe::App for SweepXApp {
                         &self.apps,
                         &mut self.search_query,
                         &mut self.category_filter,
+                        &mut self.sort_field,
+                        &mut self.sort_direction,
                         &mut self.show_system_packages,
                         &mut on_inspect,
                         &mut on_clean,
