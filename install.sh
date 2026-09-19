@@ -106,16 +106,29 @@ elif [ "$DOWNLOADER" = "wget" ]; then
     fi
 fi
 
-# 6. Fallback: If precompiled release isn't ready, build with cargo if available
+# 6. Fallback: If precompiled release isn't ready, build from source
 if [ "$INSTALLED_SUCCESS" -eq 0 ]; then
-    echo -e "${YELLOW}Prebuilt binary release not found. Checking for Rust / cargo toolchain...${NC}"
+    echo -e "${YELLOW}Prebuilt release binary not found on GitHub. Checking for Rust compiler...${NC}"
+    if ! command -v cargo >/dev/null 2>&1; then
+        echo -e "${BLUE}Rust is required to build from source. Installing lightweight Rust toolchain via rustup...${NC}"
+        if [ "$DOWNLOADER" = "curl" ]; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+        else
+            wget -qO- https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+        fi
+        if [ -f "$HOME/.cargo/env" ]; then
+            # Source cargo environment for this script
+            source "$HOME/.cargo/env"
+        fi
+    fi
+
     if command -v cargo >/dev/null 2>&1; then
-        echo -e "Compiling SweepX from source via cargo..."
+        echo -e "${GREEN}Building and installing SweepX from source via cargo...${NC}"
         cargo install --git "https://github.com/${REPO_OWNER}/${REPO_NAME}.git" --root "$HOME/.local"
         INSTALLED_SUCCESS=1
     else
-        echo -e "${RED}Failed to download precompiled binary and cargo was not found.${NC}"
-        echo -e "Please install Rust (https://rustup.rs) or download the release manually from:"
+        echo -e "${RED}Error: Could not install or locate Rust toolchain.${NC}"
+        echo -e "Please install Rust from https://rustup.rs or check the releases page:"
         echo -e "https://github.com/${REPO_OWNER}/${REPO_NAME}/releases"
         exit 1
     fi

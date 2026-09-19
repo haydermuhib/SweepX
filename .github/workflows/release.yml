@@ -1,0 +1,51 @@
+name: Release Binary Builder
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build Linux Release Binary
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxinerama-dev libgl1-mesa-dev libxkbcommon-dev libwayland-dev
+
+      - name: Build Release Binary
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+
+      - name: Package Binary
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar -czf sweepx-${{ matrix.target }}.tar.gz sweepx
+          mv sweepx-${{ matrix.target }}.tar.gz $GITHUB_WORKSPACE/
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: sweepx-${{ matrix.target }}.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
