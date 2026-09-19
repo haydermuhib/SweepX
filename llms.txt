@@ -1,0 +1,60 @@
+# SweepX
+
+> Unified Linux Application Tracker, Live Installation Watcher, and Deep Residual Uninstaller in pure Rust (eframe / egui).
+
+SweepX provides a single, unified view of all user software across native packaging formats (Debian/Ubuntu dpkg, Arch Linux pacman, Fedora/RHEL rpm), containerized packaging runtimes (Flatpak, Snap), standalone AppImages, and unmanaged installations in `/opt` or `~/.local/bin`.
+
+It includes a live installation watcher that snapshots filesystem changes during manual builds (`make install`), a heuristic residual hunter that scans XDG directories and systemd unit files, and a fail-safe multi-tier safety barrier that prevents unintended deletions of critical operating system paths.
+
+## Core Capabilities
+
+- **Unified Multi-Format Discovery:** Scans dpkg, pacman, rpm, flatpak, snap, AppImage, and /opt simultaneously without heavy background daemon overhead.
+- **Real-Time Install Watcher:** Wraps source builds (`make install`, custom install scripts) to capture filesystem diffs and store exact deletion manifests.
+- **Deep Residual Purge:** Discovers orphaned configuration files (`~/.config`), cache trees (`~/.cache`), local application data (`~/.local/share`), broken symlinks, and user systemd services.
+- **Safety Barrier:** Hardcoded path validation prevents removal of root (`/`), user home roots (`/home/$USER`), `/usr`, `/etc`, `/var`, and active shell configurations.
+- **Dual Interface:** Runs either as a 60 FPS hardware-accelerated GUI (`eframe`/`egui`) or as a standalone, scriptable CLI with JSON output.
+- **In-Place Self-Updater:** Checks GitHub Releases and atomically swaps the running executable binary without requiring external package managers.
+
+## Quick Installation
+
+### Universal 1-Line Installer (Bash)
+```bash
+curl -fsSL https://raw.githubusercontent.com/haydermuhib/SweepX/main/install.sh | bash
+```
+
+### Build from Source (Cargo)
+```bash
+git clone https://github.com/haydermuhib/SweepX.git
+cd SweepX
+cargo build --release
+# Executable binary located at target/release/sweepx
+```
+
+## CLI Subcommand Reference
+
+- `sweepx`: Launches the graphical desktop interface.
+- `sweepx list [--filter <native|flatpak|snap|appimage|manual>] [--json]`: Lists all installed software across all packaging layers.
+- `sweepx inspect <app_id_or_name>`: Inspects binary paths, desktop entry files, associated systemd units, and XDG cache/config footprints.
+- `sweepx clean <app_id_or_name> [--dry-run] [--permanent] [--yes]`: Scans and removes leftover residual directories and caches for a specific app.
+- `sweepx purge <app_id_or_name> [--dry-run] [--permanent] [--yes]`: Uninstalls unmanaged software (/opt or AppImage) and purges all related artifacts.
+- `sweepx sweep [--dry-run] [--json]`: Cleans system-wide bloat including disabled Snap revisions, unused Flatpak runtimes, and package manager caches.
+- `sweepx watch --name <app_name> -- <command>`: Tracks an installation command (e.g. `sudo make install`) and records an exact deletion manifest.
+- `sweepx history`: Displays audit logs and total lifetime disk space reclaimed.
+- `sweepx update [--check]`: Checks GitHub for newer releases and performs atomic self-update.
+
+## System Architecture
+
+- `src/scanner/`: Multi-tier scanners (Native PM, Flatpak, Snap, AppImage, Manual /opt).
+- `src/tracker/`: Filesystem snapshot engine and install watcher manifest generator.
+- `src/cleaner/`: Safety barrier validator, symlink graph resolver, and atomic deletion engine.
+- `src/db/`: Embedded SQLite storage for manifests, residual signatures, and audit logs.
+- `src/ui/`: Reactive hardware-accelerated desktop interface built with eframe/egui.
+- `src/cli/`: Terminal command parser and automation handlers.
+- `src/updater/`: GitHub Releases client and in-place binary updater.
+
+## Metadata & Licensing
+
+- **Author & Copyright:** Haider Ali Tariq and SweepX Contributors
+- **License:** Dual-licensed under MIT (LICENSE-MIT) and Apache-2.0 (LICENSE-APACHE)
+- **Repository:** https://github.com/haydermuhib/SweepX
+- **Website & Showcase:** https://haydermuhib.github.io/SweepX/

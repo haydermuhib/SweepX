@@ -1,0 +1,1383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/svg+xml" href="assets/icons/sweepx.svg">
+    <title>SweepX - Unified Linux Application Tracker & Deep Uninstaller</title>
+    <meta name="description" content="A unified Linux application tracker, live installation watcher, and deep residual uninstaller built in pure Rust.">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=JetBrains+Mono:wght@400;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            /* Fiction Design System Tokens */
+            --bg-page: #FFFDF9;
+            --bg-surface: #FFFFFF;
+            --bg-cream: #FFF7EB;
+            --bg-yellow: #FEF08A;
+            --bg-orange: #FFEDD5;
+            --bg-sky: #E0F2FE;
+            --bg-mint: #DCFCE7;
+            --bg-pink: #FFE4E6;
+            --bg-purple: #F3E8FF;
+
+            /* Saturated Brand Accents */
+            --brand-yellow: #FACC15;
+            --brand-orange: #FB923C;
+            --brand-coral: #F43F5E;
+            --brand-sky: #38BDF8;
+            --brand-green: #22C55E;
+            --brand-purple: #A855F7;
+            --brand-dark: #18181B;
+
+            /* Borders & Shadows */
+            --border-width: 3px;
+            --border-color: #18181B;
+            --shadow-hard: 5px 5px 0px #18181B;
+            --shadow-hard-sm: 3px 3px 0px #18181B;
+            --shadow-hard-lg: 8px 8px 0px #18181B;
+            --radius-sm: 10px;
+            --radius-md: 16px;
+            --radius-lg: 24px;
+            --radius-pill: 999px;
+
+            /* Typography */
+            --font-display: 'Fredoka', cursive, sans-serif;
+            --font-body: 'Plus Jakarta Sans', -apple-system, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-page);
+            color: var(--brand-dark);
+            font-family: var(--font-body);
+            font-size: 16px;
+            line-height: 1.6;
+            overflow-x: hidden;
+            background-image: radial-gradient(#E2D9C8 1.5px, transparent 1.5px);
+            background-size: 24px 24px;
+        }
+
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        /* Container */
+        .container {
+            width: 100%;
+            max-width: 1180px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* Navigation */
+        .navbar {
+            padding: 24px 0;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: rgba(255, 253, 249, 0.95);
+            backdrop-filter: blur(8px);
+            border-bottom: var(--border-width) solid var(--border-color);
+        }
+
+        .nav-inner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .logo-wrap {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-family: var(--font-display);
+            font-size: 26px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .logo-badge {
+            width: 44px;
+            height: 44px;
+            background: var(--brand-yellow);
+            border: var(--border-width) solid var(--border-color);
+            border-radius: var(--radius-sm);
+            box-shadow: var(--shadow-hard-sm);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            font-weight: 700;
+            font-size: 15px;
+        }
+
+        .nav-links a {
+            padding: 8px 14px;
+            border-radius: var(--radius-sm);
+            transition: all 0.15s ease;
+        }
+
+        .nav-links a:hover {
+            background: var(--bg-yellow);
+        }
+
+        .btn-nav-gh {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--bg-surface);
+            border: var(--border-width) solid var(--border-color);
+            padding: 8px 18px;
+            border-radius: var(--radius-pill);
+            box-shadow: var(--shadow-hard-sm);
+            font-weight: 800;
+            font-size: 14px;
+            cursor: pointer;
+            transition: transform 0.1s ease, box-shadow 0.1s ease;
+        }
+
+        .btn-nav-gh:hover {
+            transform: translate(-2px, -2px);
+            box-shadow: 5px 5px 0px var(--border-color);
+            background: var(--bg-yellow);
+        }
+
+        .btn-nav-gh:active {
+            transform: translate(2px, 2px);
+            box-shadow: 1px 1px 0px var(--border-color);
+        }
+
+        /* Hero Section */
+        .hero {
+            padding: 64px 0 48px;
+            text-align: center;
+        }
+
+        .hero-badge-row {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+
+        .tag-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            font-size: 13px;
+            font-weight: 800;
+            font-family: var(--font-mono);
+            border: var(--border-width) solid var(--border-color);
+            border-radius: var(--radius-pill);
+            box-shadow: var(--shadow-hard-sm);
+            text-transform: uppercase;
+        }
+
+        .tag-rust { background: #FED7AA; }
+        .tag-gui { background: #E0E7FF; }
+        .tag-safe { background: #BBF7D0; }
+
+        .hero-title {
+            font-family: var(--font-display);
+            font-size: clamp(38px, 6vw, 68px);
+            font-weight: 700;
+            line-height: 1.1;
+            margin-bottom: 20px;
+            letter-spacing: -1px;
+        }
+
+        .hero-title .highlight {
+            background: var(--brand-yellow);
+            padding: 2px 14px;
+            border: var(--border-width) solid var(--border-color);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-hard-sm);
+            display: inline-block;
+            margin: 4px 0;
+        }
+
+        .hero-desc {
+            max-width: 740px;
+            margin: 0 auto 36px;
+            font-size: clamp(17px, 2.2vw, 20px);
+            color: #3F3F46;
+            font-weight: 500;
+        }
+
+        /* 1-Line Installer Card */
+        .install-box {
+            max-width: 780px;
+            margin: 0 auto 48px;
+            background: var(--bg-surface);
+            border: var(--border-width) solid var(--border-color);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-hard-lg);
+            padding: 24px 28px;
+            text-align: left;
+            position: relative;
+        }
+
+        .install-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .install-title {
+            font-family: var(--font-display);
+            font-size: 18px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .terminal-dots {
+            display: flex;
+            gap: 6px;
+        }
+
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 2px solid var(--border-color);
+        }
+        .dot-red { background: var(--brand-coral); }
+        .dot-yellow { background: var(--brand-yellow); }
+        .dot-green { background: var(--brand-green); }
+
+        .cmd-bar {
+            display: flex;
+            align-items: center;
+            background: #18181B;
+            color: #FAFAFA;
+            padding: 14px 18px;
+            border-radius: var(--radius-md);
+            border: var(--border-width) solid var(--border-color);
+            font-family: var(--font-mono);
+            font-size: 14px;
+            gap: 12px;
+            overflow-x: auto;
+        }
+
+        .cmd-text {
+            flex: 1;
+            white-space: nowrap;
+            overflow-x: auto;
+        }
+
+        .cmd-prompt {
+            color: var(--brand-yellow);
+            font-weight: 700;
+            user-select: none;
+        }
+
+        .btn-copy {
+            background: var(--brand-yellow);
+            color: var(--brand-dark);
+            border: 2px solid var(--border-color);
+            padding: 8px 16px;
+            border-radius: var(--radius-sm);
+            font-family: var(--font-body);
+            font-weight: 800;
+            font-size: 13px;
+            cursor: pointer;
+            box-shadow: var(--shadow-hard-sm);
+            transition: all 0.1s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+        }
+
+        .btn-copy:hover {
+            transform: translate(-1px, -1px);
+            box-shadow: 4px 4px 0px var(--border-color);
+        }
+
+        .btn-copy:active {
+            transform: translate(2px, 2px);
+            box-shadow: 1px 1px 0px var(--border-color);
+        }
+
+        /* Buttons Row */
+        .hero-actions {
+            display: flex;
+            justify-content: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .btn-main {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--brand-coral);
+            color: #FFFFFF;
+            font-family: var(--font-display);
+            font-size: 18px;
+            font-weight: 700;
+            padding: 14px 28px;
+            border: var(--border-width) solid var(--border-color);
+            border-radius: var(--radius-pill);
+            box-shadow: var(--shadow-hard);
+            cursor: pointer;
+            transition: all 0.12s ease;
+        }
+
+        .btn-main:hover {
+            transform: translate(-3px, -3px);
+            box-shadow: var(--shadow-hard-lg);
+            background: #E11D48;
+        }
+
+        .btn-main:active {
+            transform: translate(2px, 2px);
+            box-shadow: var(--shadow-hard-sm);
+        }
+
+        .btn-secondary {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--bg-surface);
+            color: var(--brand-dark);
+            font-family: var(--font-display);
+            font-size: 18px;
+            font-weight: 700;
+            padding: 14px 28px;
+            border: var(--border-width) solid var(--border-color);
+            border-radius: var(--radius-pill);
+            box-shadow: var(--shadow-hard);
+            cursor: pointer;
+            transition: all 0.12s ease;
+        }
+
+        .btn-secondary:hover {
+            transform: translate(-3px, -3px);
+            box-shadow: var(--shadow-hard-lg);
+            background: var(--bg-yellow);
+        }
+
+        .btn-secondary:active {
+            transform: translate(2px, 2px);
+            box-shadow: var(--shadow-hard-sm);
+        }
+
+        /* Section Layouts */
+        .section {
+            padding: 60px 0;
+        }
+
+        .section-header {
+            text-align: center;
+            max-width: 700px;
+            margin: 0 auto 44px;
+        }
+
+        .section-tag {
+            display: inline-block;
+            background: var(--bg-yellow);
+            border: var(--border-width) solid var(--border-color);
+            padding: 4px 14px;
+            border-radius: var(--radius-pill);
+            box-shadow: var(--shadow-hard-sm);
+            font-weight: 800;
+            font-size: 12px;
+            text-transform: uppercase;
+            font-family: var(--font-mono);
+            margin-bottom: 12px;
+        }
+
+        .section-title {
+            font-family: var(--font-display);
+            font-size: clamp(30px, 4vw, 44px);
+            font-weight: 700;
+            line-height: 1.15;
+            margin-bottom: 12px;
+        }
+
+        .section-subtitle {
+            color: #52525B;
+            font-size: 17px;
+        }
+
+        /* Cards Grid */
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 24px;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+            gap: 28px;
+        }
+
+        .fiction-card {
+            background: var(--bg-surface);
+            border: var(--border-width) solid var(--border-color);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-hard);
+            padding: 28px;
+            position: relative;
+            transition: all 0.15s ease;
+        }
+
+        .fiction-card:hover {
+            transform: translate(-3px, -3px);
+            box-shadow: var(--shadow-hard-lg);
+        }
+
+        .card-icon-box {
+            width: 54px;
+            height: 54px;
+            border: var(--border-width) solid var(--border-color);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-hard-sm);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 26px;
+            margin-bottom: 20px;
+        }
+
+        .icon-yellow { background: var(--brand-yellow); }
+        .icon-orange { background: var(--brand-orange); }
+        .icon-sky { background: var(--brand-sky); }
+        .icon-coral { background: var(--brand-coral); color: #fff; }
+        .icon-mint { background: var(--brand-green); color: #fff; }
+        .icon-purple { background: var(--brand-purple); color: #fff; }
+
+        .card-title {
+            font-family: var(--font-display);
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+
+        .card-text {
+            color: #3F3F46;
+            font-size: 15px;
+            line-height: 1.55;
+            margin-bottom: 16px;
+        }
+
+        .card-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .chip {
+            background: var(--bg-cream);
+            border: 2px solid var(--border-color);
+            padding: 3px 10px;
+            border-radius: var(--radius-pill);
+            font-size: 12px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+        }
+
+        /* Interactive Simulator Component */
+        .simulator-box {
+            background: var(--bg-surface);
+            border: var(--border-width) solid var(--border-color);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-hard-lg);
+            overflow: hidden;
+            margin-bottom: 32px;
+        }
+
+        .sim-header {
+            background: var(--bg-yellow);
+            border-bottom: var(--border-width) solid var(--border-color);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .sim-title {
+            font-family: var(--font-display);
+            font-size: 20px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .sim-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .btn-sim {
+            background: var(--bg-surface);
+            border: 2px solid var(--border-color);
+            padding: 8px 16px;
+            border-radius: var(--radius-sm);
+            font-weight: 800;
+            font-size: 13px;
+            cursor: pointer;
+            box-shadow: var(--shadow-hard-sm);
+            transition: all 0.1s ease;
+        }
+
+        .btn-sim:hover {
+            transform: translate(-2px, -2px);
+            box-shadow: 4px 4px 0px var(--border-color);
+            background: #FFF;
+        }
+
+        .btn-sim-purge {
+            background: var(--brand-coral);
+            color: #FFF;
+        }
+        .btn-sim-purge:hover {
+            background: #E11D48;
+        }
+
+        .sim-body {
+            padding: 24px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .sim-body {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .sim-pane {
+            background: var(--bg-cream);
+            border: 2px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            min-height: 240px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .pane-label {
+            font-family: var(--font-display);
+            font-size: 15px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .sim-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            flex: 1;
+        }
+
+        .sim-item {
+            background: var(--bg-surface);
+            border: 2px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            padding: 10px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 13px;
+            cursor: pointer;
+            transition: background 0.1s ease;
+        }
+
+        .sim-item:hover {
+            background: var(--bg-yellow);
+        }
+
+        .sim-item.active {
+            border-color: var(--brand-coral);
+            background: var(--bg-pink);
+            font-weight: 700;
+        }
+
+        .sim-badge {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            background: var(--bg-cream);
+        }
+
+        .sim-res-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            padding: 6px 10px;
+            background: #FFFFFF;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+        }
+
+        .sim-res-item input[type="checkbox"] {
+            accent-color: var(--brand-coral);
+            width: 16px;
+            height: 16px;
+        }
+
+        /* Architecture Flow */
+        .arch-flow-wrap {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            margin-top: 24px;
+        }
+
+        .arch-step-box {
+            background: var(--bg-surface);
+            border: var(--border-width) solid var(--border-color);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-hard);
+            padding: 20px 24px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            position: relative;
+        }
+
+        .arch-step-num {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            border: var(--border-width) solid var(--border-color);
+            background: var(--brand-yellow);
+            box-shadow: var(--shadow-hard-sm);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: var(--font-display);
+            font-size: 20px;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        .arch-step-content {
+            flex: 1;
+        }
+
+        .arch-step-heading {
+            font-family: var(--font-display);
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .arch-step-desc {
+            color: #4B5563;
+            font-size: 14px;
+        }
+
+        /* CLI vs GUI tabs */
+        .tab-box {
+            background: var(--bg-surface);
+            border: var(--border-width) solid var(--border-color);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-hard-lg);
+            overflow: hidden;
+        }
+
+        .tab-nav {
+            display: flex;
+            background: var(--bg-cream);
+            border-bottom: var(--border-width) solid var(--border-color);
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 16px 20px;
+            text-align: center;
+            font-family: var(--font-display);
+            font-size: 17px;
+            font-weight: 700;
+            border: none;
+            border-right: var(--border-width) solid var(--border-color);
+            background: transparent;
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+
+        .tab-btn:last-child {
+            border-right: none;
+        }
+
+        .tab-btn.active {
+            background: var(--bg-surface);
+            color: var(--brand-dark);
+            border-bottom: 4px solid var(--brand-yellow);
+        }
+
+        .tab-pane {
+            display: none;
+            padding: 28px;
+        }
+
+        .tab-pane.active {
+            display: block;
+        }
+
+        /* Expandable Accordion (Details) */
+        details.fiction-accordion {
+            background: var(--bg-surface);
+            border: var(--border-width) solid var(--border-color);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-hard-sm);
+            margin-bottom: 16px;
+            overflow: hidden;
+            transition: all 0.15s ease;
+        }
+
+        details.fiction-accordion summary {
+            padding: 18px 24px;
+            font-family: var(--font-display);
+            font-size: 17px;
+            font-weight: 700;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--bg-cream);
+            list-style: none;
+        }
+
+        details.fiction-accordion summary::-webkit-details-marker {
+            display: none;
+        }
+
+        details.fiction-accordion summary::after {
+            content: "▼";
+            font-size: 12px;
+            transition: transform 0.2s ease;
+        }
+
+        details.fiction-accordion[open] summary::after {
+            transform: rotate(-180deg);
+        }
+
+        details.fiction-accordion .accordion-content {
+            padding: 20px 24px;
+            border-top: var(--border-width) solid var(--border-color);
+            font-size: 15px;
+            color: #374151;
+            line-height: 1.6;
+        }
+
+        /* Code Snippet */
+        pre.code-block {
+            background: #18181B;
+            color: #F4F4F5;
+            padding: 16px 20px;
+            border-radius: var(--radius-sm);
+            border: 2px solid var(--border-color);
+            font-family: var(--font-mono);
+            font-size: 13px;
+            overflow-x: auto;
+            margin: 12px 0;
+            line-height: 1.5;
+        }
+
+        /* Footer */
+        .footer {
+            border-top: var(--border-width) solid var(--border-color);
+            background: var(--bg-surface);
+            padding: 48px 0;
+            margin-top: 64px;
+        }
+
+        .footer-inner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .footer-brand {
+            font-family: var(--font-display);
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 20px;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        /* Responsive Mobile Tweaks */
+        @media (max-width: 640px) {
+            .navbar {
+                padding: 16px 0;
+            }
+            .nav-links {
+                display: none;
+            }
+            .hero {
+                padding: 40px 0 32px;
+            }
+            .install-box {
+                padding: 16px;
+            }
+            .cmd-bar {
+                font-size: 12px;
+                padding: 10px 14px;
+            }
+            .grid-2, .grid-3 {
+                grid-template-columns: 1fr;
+            }
+            .arch-step-box {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Sticky Navigation -->
+    <nav class="navbar">
+        <div class="container nav-inner">
+            <div class="logo-wrap">
+                <div class="logo-badge"><img src="assets/icons/sweepx.svg" width="28" height="28" alt="SweepX Logo" style="display:block;"></div>
+                <span>SweepX</span>
+            </div>
+            <div class="nav-links">
+                <a href="#features">Features</a>
+                <a href="#simulator">Live Demo</a>
+                <a href="#architecture">Architecture</a>
+                <a href="#cli">CLI & GUI</a>
+                <a href="#faq">Deep Dives</a>
+            </div>
+            <a href="https://github.com/haydermuhib/SweepX" target="_blank" rel="noopener" class="btn-nav-gh">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+                <span>GitHub Repo</span>
+            </a>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <header class="hero">
+        <div class="container">
+            <div class="hero-badge-row">
+                <span class="tag-pill tag-rust">🦀 Pure Rust (eframe / egui)</span>
+                <span class="tag-pill tag-gui">⚡ Realtime Watcher</span>
+                <span class="tag-pill tag-safe">🛡️ Safe Residual Purge</span>
+            </div>
+
+            <h1 class="hero-title">
+                Track, Watch, and <br>
+                <span class="highlight">Deep-Clean Linux Apps</span>
+            </h1>
+
+            <p class="hero-desc">
+                SweepX discovers native packages (dpkg, pacman, rpm), Flatpaks, Snaps, AppImages, and unmanaged binaries in /opt. It tracks build-from-source installs in real time and safely strips leftover caches, configs, and orphan systemd services.
+            </p>
+
+            <!-- 1-Line Universal Installer Card -->
+            <div class="install-box">
+                <div class="install-header">
+                    <div class="install-title">
+                        <span>⚡ 1-Line Universal Quick Install</span>
+                    </div>
+                    <div class="terminal-dots">
+                        <div class="dot dot-red"></div>
+                        <div class="dot dot-yellow"></div>
+                        <div class="dot dot-green"></div>
+                    </div>
+                </div>
+                <div class="cmd-bar">
+                    <span class="cmd-prompt">$</span>
+                    <span class="cmd-text" id="installCmd">curl -fsSL https://raw.githubusercontent.com/haydermuhib/SweepX/main/install.sh | bash</span>
+                    <button class="btn-copy" onclick="copyInstallCmd()">
+                        <span id="copyIcon">📋</span> <span id="copyText">Copy</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="hero-actions">
+                <a href="#simulator" class="btn-main">🎮 Try Interactive Demo</a>
+                <a href="#architecture" class="btn-secondary">📐 Architecture Flow</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Interactive Simulator Section -->
+    <section class="section" id="simulator">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">Interactive Preview</span>
+                <h2 class="section-title">Test Drive the SweepX Engine</h2>
+                <p class="section-subtitle">Click an application below to simulate discovering hidden residual files across XDG and system directories.</p>
+            </div>
+
+            <div class="simulator-box">
+                <div class="sim-header">
+                    <div class="sim-title">
+                        <span>🧹 SweepX Live Scanner Preview</span>
+                    </div>
+                    <div class="sim-actions">
+                        <button class="btn-sim" onclick="simulateScan()">🔄 Refresh Scan</button>
+                        <button class="btn-sim btn-sim-purge" onclick="simulatePurge()">⚡ Purge Selected Residuals</button>
+                    </div>
+                </div>
+
+                <div class="sim-body">
+                    <!-- Left: App list -->
+                    <div class="sim-pane">
+                        <div class="pane-label">
+                            <span>Detected Applications</span>
+                            <span class="chip" id="appCountChip">4 Installed</span>
+                        </div>
+                        <div class="sim-list" id="appList">
+                            <div class="sim-item active" onclick="selectSimApp(0)">
+                                <div>
+                                    <strong>Discord</strong>
+                                    <div style="font-size: 11px; color: #666;">/usr/bin/discord</div>
+                                </div>
+                                <span class="sim-badge">deb / native</span>
+                            </div>
+                            <div class="sim-item" onclick="selectSimApp(1)">
+                                <div>
+                                    <strong>Obsidian</strong>
+                                    <div style="font-size: 11px; color: #666;">~/.local/bin/Obsidian.AppImage</div>
+                                </div>
+                                <span class="sim-badge">AppImage</span>
+                            </div>
+                            <div class="sim-item" onclick="selectSimApp(2)">
+                                <div>
+                                    <strong>Spotify</strong>
+                                    <div style="font-size: 11px; color: #666;">com.spotify.Client</div>
+                                </div>
+                                <span class="sim-badge">Flatpak</span>
+                            </div>
+                            <div class="sim-item" onclick="selectSimApp(3)">
+                                <div>
+                                    <strong>Custom CLI Tool</strong>
+                                    <div style="font-size: 11px; color: #666;">/opt/custom-tool/bin</div>
+                                </div>
+                                <span class="sim-badge">Manual /opt</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Residuals list -->
+                    <div class="sim-pane">
+                        <div class="pane-label">
+                            <span id="resPaneTitle">Residual Files for Discord</span>
+                            <span class="chip" id="resTotalSize">182 MB Found</span>
+                        </div>
+                        <div class="sim-list" id="resList">
+                            <!-- Populated dynamically via JS -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Core Architecture Section -->
+    <section class="section" id="architecture" style="background: var(--bg-cream); border-top: var(--border-width) solid var(--border-color); border-bottom: var(--border-width) solid var(--border-color);">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">System Design</span>
+                <h2 class="section-title">How SweepX Cleans Safely</h2>
+                <p class="section-subtitle">Five specialized modules work together in a strict pipeline to prevent data loss.</p>
+            </div>
+
+            <div class="arch-flow-wrap">
+                <div class="arch-step-box">
+                    <div class="arch-step-num">1</div>
+                    <div class="arch-step-content">
+                        <div class="arch-step-heading">Unified Multi-Format Scanner</div>
+                        <div class="arch-step-desc">
+                            Queries dpkg, pacman, and rpm package managers, iterates Flatpak and Snap runtimes, parses standalone AppImages in ~/Applications, and scans custom desktop files.
+                        </div>
+                    </div>
+                    <span class="chip">Zero Overhead</span>
+                </div>
+
+                <div class="arch-step-box">
+                    <div class="arch-step-num">2</div>
+                    <div class="arch-step-content">
+                        <div class="arch-step-heading">Real-Time Installation Watcher</div>
+                        <div class="arch-step-desc">
+                            Uses filesystem change notifications and eBPF probes to capture every file written during <code>make install</code> or manual tar extractions into an installation manifest.
+                        </div>
+                    </div>
+                    <span class="chip">Manifest Log</span>
+                </div>
+
+                <div class="arch-step-box">
+                    <div class="arch-step-num">3</div>
+                    <div class="arch-step-content">
+                        <div class="arch-step-heading">Heuristic Residual Hunter</div>
+                        <div class="arch-step-desc">
+                            Checks XDG specification paths (<code>~/.config</code>, <code>~/.cache</code>, <code>~/.local/share</code>), user systemd unit files, autostart entries, and resolves broken symlinks.
+                        </div>
+                    </div>
+                    <span class="chip">Pattern Match</span>
+                </div>
+
+                <div class="arch-step-box">
+                    <div class="arch-step-num">4</div>
+                    <div class="arch-step-content">
+                        <div class="arch-step-heading">Multi-Tier Safety Barrier</div>
+                        <div class="arch-step-desc">
+                            Blocks deletion targets matching <code>/</code>, <code>/home/$USER</code>, <code>/usr</code>, <code>/etc</code>, <code>/var</code>, or essential system binaries before any deletion begins.
+                        </div>
+                    </div>
+                    <span class="chip" style="background: #BBF7D0;">Fail-Safe</span>
+                </div>
+
+                <div class="arch-step-box">
+                    <div class="arch-step-num">5</div>
+                    <div class="arch-step-content">
+                        <div class="arch-step-heading">Atomic Execution & Self-Updater</div>
+                        <div class="arch-step-desc">
+                            Atomic file removal with reversible trash backups, alongside background GitHub Releases polling for in-place binary upgrades.
+                        </div>
+                    </div>
+                    <span class="chip">Self-Update</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Bento Grid -->
+    <section class="section" id="features">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">Key Capabilities</span>
+                <h2 class="section-title">Built for Real Linux Systems</h2>
+                <p class="section-subtitle">No bloated electron wrappers. Low memory footprint, fast startup, and native performance.</p>
+            </div>
+
+            <div class="grid-3">
+                <div class="fiction-card">
+                    <div class="card-icon-box icon-yellow">📦</div>
+                    <h3 class="card-title">Multi-Format Tracking</h3>
+                    <p class="card-text">Combines deb, rpm, arch, flatpak, snap, appimages, and /opt into one unified dashboard.</p>
+                    <div class="card-chips">
+                        <span class="chip">dpkg</span>
+                        <span class="chip">pacman</span>
+                        <span class="chip">flatpak</span>
+                        <span class="chip">snap</span>
+                    </div>
+                </div>
+
+                <div class="fiction-card">
+                    <div class="card-icon-box icon-coral">👁️</div>
+                    <h3 class="card-title">Live Install Watcher</h3>
+                    <p class="card-text">Monitors custom source installations and records snapshot diffs for 1-click clean uninstall later.</p>
+                    <div class="card-chips">
+                        <span class="chip">Live Diffs</span>
+                        <span class="chip">Manifests</span>
+                    </div>
+                </div>
+
+                <div class="fiction-card">
+                    <div class="card-icon-box icon-mint">🛡️</div>
+                    <h3 class="card-title">Strict Path Safety</h3>
+                    <p class="card-text">Hardcoded safety gates protect root dirs, core system mounts, user home root, and active shell configs.</p>
+                    <div class="card-chips">
+                        <span class="chip">Protected Paths</span>
+                        <span class="chip">Dry-Run</span>
+                    </div>
+                </div>
+
+                <div class="fiction-card">
+                    <div class="card-icon-box icon-sky">🔗</div>
+                    <h3 class="card-title">Symlink Graph Audit</h3>
+                    <p class="card-text">Detects dangling and broken symlinks in /usr/local/bin, ~/.local/bin, and desktop entry paths.</p>
+                    <div class="card-chips">
+                        <span class="chip">Dead Links</span>
+                        <span class="chip">Orphan Scan</span>
+                    </div>
+                </div>
+
+                <div class="fiction-card">
+                    <div class="card-icon-box icon-purple">🔄</div>
+                    <h3 class="card-title">Auto GitHub Updates</h3>
+                    <p class="card-text">Checks GitHub releases directly from GUI and CLI. Installs updates atomically with zero extra tools.</p>
+                    <div class="card-chips">
+                        <span class="chip">1-Click GUI</span>
+                        <span class="chip">sweepx update</span>
+                    </div>
+                </div>
+
+                <div class="fiction-card">
+                    <div class="card-icon-box icon-orange">🎨</div>
+                    <h3 class="card-title">Native Rust GUI & CLI</h3>
+                    <p class="card-text">Use the smooth 60 FPS eframe GUI or automate maintenance through flexible terminal subcommands.</p>
+                    <div class="card-chips">
+                        <span class="chip">eframe</span>
+                        <span class="chip">egui</span>
+                        <span class="chip">CLI Subcommands</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- CLI vs GUI Section -->
+    <section class="section" id="cli" style="background: var(--bg-cream); border-top: var(--border-width) solid var(--border-color); border-bottom: var(--border-width) solid var(--border-color);">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">Interface Modes</span>
+                <h2 class="section-title">Terminal CLI or Hardware GUI</h2>
+                <p class="section-subtitle">Switch seamlessly between command line automation and the graphical desktop app.</p>
+            </div>
+
+            <div class="tab-box">
+                <div class="tab-nav">
+                    <button class="tab-btn active" onclick="switchTab(0)">💻 CLI Command Reference</button>
+                    <button class="tab-btn" onclick="switchTab(1)">🖥️ Graphical Interface (GUI)</button>
+                </div>
+
+                <div class="tab-pane active" id="tabPane0">
+                    <h3 style="font-family: var(--font-display); font-size: 20px; margin-bottom: 12px;">CLI Subcommands</h3>
+                    <p style="color: #4B5563; margin-bottom: 16px;">Use SweepX directly in scripts, cron jobs, or your terminal workflow:</p>
+                    
+                    <pre class="code-block"># Scan all applications across all formats
+sweepx list
+
+# Scan and print detailed leftover residuals for a specific app
+sweepx clean "discord" --dry-run
+
+# Watch a manual source build and record its install manifest
+sweepx watch --command "sudo make install" --name "my-tool"
+
+# Check and perform in-place GitHub update
+sweepx update --check
+sweepx update</pre>
+                </div>
+
+                <div class="tab-pane" id="tabPane1">
+                    <h3 style="font-family: var(--font-display); font-size: 20px; margin-bottom: 12px;">Native Desktop Application</h3>
+                    <p style="color: #4B5563; margin-bottom: 16px;">Launch the graphical dashboard with a single command:</p>
+                    <pre class="code-block">sweepx</pre>
+                    <p style="color: #4B5563; font-size: 14px;">Features search filtering, real-time disk recovery metrics, 1-click residual selection, and live update alerts.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Deep Dives / Accordions -->
+    <section class="section" id="faq">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">Technical Details</span>
+                <h2 class="section-title">Frequently Explored Questions</h2>
+                <p class="section-subtitle">Deep dive into technical implementations and safety guarantees.</p>
+            </div>
+
+            <details class="fiction-accordion">
+                <summary>How does SweepX identify residuals without uninstall hooks?</summary>
+                <div class="accordion-content">
+                    SweepX combines binary name resolution, desktop file reverse lookup, and standard XDG directory matching (<code>~/.config/&lt;app&gt;</code>, <code>~/.cache/&lt;app&gt;</code>, <code>~/.local/share/&lt;app&gt;</code>). It also searches <code>~/.config/systemd/user/</code> for associated background services.
+                </div>
+            </details>
+
+            <details class="fiction-accordion">
+                <summary>Can SweepX accidentally delete system files?</summary>
+                <div class="accordion-content">
+                    No. The Safety Barrier runs every proposed deletion through an explicit blacklist check. Root folders (<code>/</code>, <code>/usr</code>, <code>/etc</code>, <code>/var</code>), home roots (<code>/home/$USER</code>), and essential libraries are rejected before any disk modification occurs.
+                </div>
+            </details>
+
+            <details class="fiction-accordion">
+                <summary>How does the 1-Line installer work across different distros?</summary>
+                <div class="accordion-content">
+                    The <code>install.sh</code> script detects your architecture (x86_64, aarch64), checks GitHub for prebuilt release binaries, sets executable permissions, installs desktop launcher shortcuts and vector SVG icons, and configures your PATH in <code>.bashrc</code> / <code>.zshrc</code>.
+                </div>
+            </details>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container footer-inner">
+            <div>
+                <div class="footer-brand" style="display:flex;align-items:center;gap:8px;"><img src="assets/icons/sweepx.svg" width="24" height="24" alt="SweepX Logo"> SweepX</div>
+                <div style="font-size: 13px; color: #666; margin-top: 4px;">
+                    Dual-licensed under MIT and Apache-2.0. Copyright © Haider Ali Tariq.
+                </div>
+            </div>
+            <div class="footer-links">
+                <a href="https://github.com/haydermuhib/SweepX" target="_blank" rel="noopener">GitHub</a>
+                <a href="https://github.com/haydermuhib/SweepX/blob/main/LICENSE-MIT" target="_blank" rel="noopener">MIT License</a>
+                <a href="https://github.com/haydermuhib/SweepX/releases" target="_blank" rel="noopener">Releases</a>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Interactive JS -->
+    <script>
+        // Copy 1-Line command
+        function copyInstallCmd() {
+            const cmd = document.getElementById('installCmd').innerText;
+            navigator.clipboard.writeText(cmd).then(() => {
+                const text = document.getElementById('copyText');
+                const icon = document.getElementById('copyIcon');
+                text.innerText = "Copied!";
+                icon.innerText = "✅";
+                setTimeout(() => {
+                    text.innerText = "Copy";
+                    icon.innerText = "📋";
+                }, 2000);
+            });
+        }
+
+        // Mock Data for Simulator
+        const mockApps = [
+            {
+                name: "Discord",
+                residuals: [
+                    { path: "~/.config/discord", size: "142 MB", type: "Config & Cache" },
+                    { path: "~/.local/share/icons/hicolor/scalable/apps/discord.svg", size: "12 KB", type: "Desktop Icon" },
+                    { path: "~/.config/systemd/user/discord.service", size: "4 KB", type: "Systemd Unit" },
+                    { path: "~/.cache/discord-updater", size: "40 MB", type: "Update Cache" }
+                ],
+                total: "182 MB"
+            },
+            {
+                name: "Obsidian",
+                residuals: [
+                    { path: "~/.config/obsidian", size: "28 MB", type: "Config" },
+                    { path: "~/.local/share/applications/appimagekit_obsidian.desktop", size: "2 KB", type: "Desktop Entry" },
+                    { path: "~/.cache/obsidian", size: "84 MB", type: "Cache" }
+                ],
+                total: "112 MB"
+            },
+            {
+                name: "Spotify",
+                residuals: [
+                    { path: "~/.var/app/com.spotify.Client/cache", size: "310 MB", type: "Flatpak Storage" },
+                    { path: "~/.var/app/com.spotify.Client/config", size: "14 MB", type: "Flatpak Config" }
+                ],
+                total: "324 MB"
+            },
+            {
+                name: "Custom CLI Tool",
+                residuals: [
+                    { path: "/opt/custom-tool", size: "45 MB", type: "Installation Directory" },
+                    { path: "/usr/local/bin/custom-tool", size: "0 B", type: "Broken Symlink" }
+                ],
+                total: "45 MB"
+            }
+        ];
+
+        let selectedAppIndex = 0;
+
+        function renderResiduals() {
+            const app = mockApps[selectedAppIndex];
+            document.getElementById('resPaneTitle').innerText = `Residual Files for ${app.name}`;
+            document.getElementById('resTotalSize').innerText = `${app.total} Found`;
+
+            const list = document.getElementById('resList');
+            list.innerHTML = "";
+
+            app.residuals.forEach((res, i) => {
+                const item = document.createElement('div');
+                item.className = "sim-res-item";
+                item.innerHTML = `
+                    <input type="checkbox" checked id="chk_${i}">
+                    <div style="flex: 1;">
+                        <span style="font-weight: 600;">${res.path}</span>
+                        <div style="font-size: 11px; color: #666;">${res.type} &bull; ${res.size}</div>
+                    </div>
+                `;
+                list.appendChild(item);
+            });
+        }
+
+        function selectSimApp(index) {
+            selectedAppIndex = index;
+            const items = document.querySelectorAll('#appList .sim-item');
+            items.forEach((item, i) => {
+                if (i === index) item.classList.add('active');
+                else item.classList.remove('active');
+            });
+            renderResiduals();
+        }
+
+        function simulateScan() {
+            const resPane = document.getElementById('resList');
+            resPane.innerHTML = `<div style="padding: 20px; text-align: center; font-weight: 700; color: #888;">🔍 Scanning filesystem paths in real-time...</div>`;
+            setTimeout(() => {
+                renderResiduals();
+            }, 500);
+        }
+
+        function simulatePurge() {
+            const list = document.getElementById('resList');
+            list.innerHTML = `
+                <div style="padding: 20px; text-align: center; background: #DCFCE7; border: 2px solid #22C55E; border-radius: 8px;">
+                    <div style="font-size: 24px; margin-bottom: 8px;">✨</div>
+                    <strong style="color: #15803D;">Cleanup Complete!</strong>
+                    <div style="font-size: 13px; color: #166534; margin-top: 4px;">Safely purged selected residuals. Reclaimed ${mockApps[selectedAppIndex].total}.</div>
+                </div>
+            `;
+            document.getElementById('resTotalSize').innerText = "0 MB (Cleaned)";
+        }
+
+        // Tab Switching
+        function switchTab(index) {
+            const btns = document.querySelectorAll('.tab-btn');
+            const panes = document.querySelectorAll('.tab-pane');
+            btns.forEach((btn, i) => {
+                if (i === index) btn.classList.add('active');
+                else btn.classList.remove('active');
+            });
+            panes.forEach((pane, i) => {
+                if (i === index) pane.classList.add('active');
+                else pane.classList.remove('active');
+            });
+        }
+
+        // Init on load
+        renderResiduals();
+    </script>
+</body>
+</html>
