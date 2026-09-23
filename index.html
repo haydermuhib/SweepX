@@ -51,6 +51,44 @@
             --font-mono: 'JetBrains Mono', monospace;
         }
 
+
+        /* Sleek scrollbar styling for webkit and firefox */
+        html {
+            scrollbar-width: thin;
+            scrollbar-color: var(--brand-coral) var(--bg-page);
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-page);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #E2D9C8;
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--brand-yellow);
+        }
+
+        /* Completely hide scrollbars on command bars and terminal blocks */
+        .cmd-bar, .cmd-text, pre.code-block, .sim-output {
+            scrollbar-width: none !important;
+            -ms-overflow-style: none !important;
+        }
+
+        .cmd-bar::-webkit-scrollbar, .cmd-text::-webkit-scrollbar, pre.code-block::-webkit-scrollbar, .sim-output::-webkit-scrollbar {
+            display: none !important;
+            width: 0 !important;
+            height: 0 !important;
+        }
+
         * {
             box-sizing: border-box;
             margin: 0;
@@ -280,13 +318,15 @@
             font-family: var(--font-mono);
             font-size: 14px;
             gap: 12px;
-            overflow-x: auto;
+            overflow: hidden;
         }
 
         .cmd-text {
             flex: 1;
             white-space: nowrap;
             overflow-x: auto;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
         }
 
         .cmd-prompt {

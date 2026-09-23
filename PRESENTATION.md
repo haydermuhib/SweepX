@@ -1,20 +1,20 @@
-# SweepX Architecture & Scanning Engine Deep Dive
-## System Applications, Container Sandboxes, Safety Guards & Residual Discovery
+# SweepX Architecture and Scanning Engine Deep Dive
+## Multi-Tier Packaging, Container Sandboxes, Safety Barriers, and Footprint Accounting
 
 **Duration:** 15 minutes  
-**Audience:** Contributors, Maintainers & System Engineers  
-**Date:** 2026-09-20  
+**Audience:** Contributors, Maintainers, and Linux Systems Engineers  
+**Date:** 2026-09-23  
 
 ---
 
 ## Agenda
 
-1. **System & Multi-Tier Scanner Architecture** (3 min)
-2. **Package Manager & Container Discovery Engines** (3 min)
-3. **Deep Residual Discovery & File Location Matrix** (3 min)
-4. **Safety Barrier & Deletion Guardrails** (3 min)
-5. **Live Install Watcher & Database Audit Trail** (2 min)
-6. **Documentation & Contributor Guide Reference** (1 min)
+1. Multi-Tier Scanner Architecture (3 min)
+2. Package Manager and Container Discovery (3 min)
+3. Residual Discovery Engine and Isolation Rules (3 min)
+4. Safety Barrier and Deletion Guardrails (3 min)
+5. Installation Watcher and SQLite Audit History (2 min)
+6. Contributing and Subsystem Reference (1 min)
 
 **Total: 15 minutes**
 
@@ -22,7 +22,7 @@
 
 ## 1. Multi-Tier Scanner Architecture
 
-SweepX uses an asynchronous multi-tier orchestrator ([`src/scanner/orchestrator.rs`](src/scanner/orchestrator.rs)) that concurrently crawls system package databases, container runtimes, and local filesystem directories.
+SweepX uses an asynchronous orchestrator ([`src/scanner/orchestrator.rs`](src/scanner/orchestrator.rs)) that concurrently queries system package databases, container runtimes, and local filesystem directories.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -32,85 +32,87 @@ SweepX uses an asynchronous multi-tier orchestrator ([`src/scanner/orchestrator.
        │               │                │               │
        ▼               ▼                ▼               ▼
 ┌──────────────┐┌──────────────┐┌──────────────┐┌──────────────┐
-│  Native PMs  ││  Containers  ││ Filesystem & ││   Desktop    │
+│  Native PMs  ││  Containers  ││ Filesystem   ││   Desktop    │
 │ (DPKG/Pacman/││(Flatpak/Snap)││  AppImages   ││   Entries    │
 │     RPM)     ││              ││ (/opt, ~/bin)││(.desktop files)
 └──────────────┘└──────────────┘└──────────────┘└──────────────┘
 ```
 
 <details>
-<summary><b>📋 Concurrent Pipeline Execution Details</b></summary>
+<summary><b>Pipeline Execution Details</b></summary>
 
-- **Thread Pooling:** Spawns asynchronous non-blocking tasks via Tokio.
-- **De-duplication:** Automatically resolves overlapping applications (e.g. an APT package that also installs a `.desktop` file is merged into a single unified record using binary inode and desktop ID matching).
-- **Execution Speed:** Scans over 1,000+ installed applications across all tiers in **< 150 ms**.
+- Asynchronous execution: Spawns non-blocking tasks via Tokio.
+- Native deduplication: Merges `.desktop` launchers with underlying native packages using binary paths, package IDs, and name matching.
+- Scan performance: Indexes 1,000+ installed applications across all tiers in under 150 ms.
 
 </details>
 
 ---
 
-## 2. Package Manager & Container Discovery
+## 2. Package Manager and Container Discovery
 
-SweepX inspects every application tier with dedicated native parsers:
+SweepX discovers installed software across multiple packaging systems:
 
-| Tier / Format | Primary Scanner File | Inspected System Locations & Commands |
+| Packaging Format | Primary Scanner File | Inspected Locations and Commands |
 | :--- | :--- | :--- |
 | **Native DPKG/APT** | [`src/scanner/native/apt.rs`](src/scanner/native/apt.rs) | `dpkg-query -W -f='...'`, `/var/lib/dpkg/status` |
 | **Native Pacman** | [`src/scanner/native/pacman.rs`](src/scanner/native/pacman.rs) | `pacman -Qi`, `/var/lib/pacman/local/` |
 | **Native RPM/DNF** | [`src/scanner/native/dnf.rs`](src/scanner/native/dnf.rs) | `rpm -qa --queryformat`, `/var/lib/rpm` |
 | **Flatpak** | [`src/scanner/flatpak.rs`](src/scanner/flatpak.rs) | `flatpak list --app --columns=...`, `~/.local/share/flatpak` |
 | **Snap** | [`src/scanner/snap.rs`](src/scanner/snap.rs) | `snap list`, `/var/lib/snapd/desktop/applications` |
-| **AppImage** | [`src/scanner/appimage.rs`](src/scanner/appimage.rs) | `~/Applications`, `~/.local/bin`, `~/Downloads`, magic bytes `0x41 0x49 0x02` |
-| **Desktop Launchers** | [`src/scanner/desktop_entry.rs`](src/scanner/desktop_entry.rs) | `~/.local/share/applications`, `/usr/share/applications`, `/usr/local/share/applications` |
+| **AppImage** | [`src/scanner/appimage.rs`](src/scanner/appimage.rs) | `~/Applications`, `~/.local/bin`, `~/bin`, magic bytes `0x41 0x49 0x02` |
+| **Manual /opt** | [`src/scanner/manual.rs`](src/scanner/manual.rs) | `/opt/*`, `~/.local/bin/*` with `rpm -qf`, `dpkg -S`, or `pacman -Qo` ownership checks |
+| **Desktop Launchers** | [`src/scanner/desktop_entry.rs`](src/scanner/desktop_entry.rs) | `~/.local/share/applications`, `/usr/share/applications` |
 
 <details>
-<summary><b>📋 Metadata Extracted Per Application</b></summary>
+<summary><b>Metadata Extracted Per Application</b></summary>
 
-- **Display Name & Description:** Extracted from `.desktop` files or package metadata.
-- **Icon Resolution:** Resolves themed icons, scalable SVGs in `~/.local/share/icons/`, `/usr/share/icons/`, and pixmaps.
-- **Binary Executable Path:** Resolves absolute binary paths via `PATH` lookup and symlink dereferencing.
-- **Installed Size:** Queries package metadata or recursively measures application folders.
+- Application Name and Description: Read from package headers or `.desktop` files.
+- Icon Paths: Resolves system icons, scalable SVGs in `~/.local/share/icons/`, and pixmaps.
+- Binary Location: Resolves executable paths through `PATH` lookups and symlink dereferencing.
+- Storage Footprint: Measures package manager reported size and physical payload directory size.
 
 </details>
 
 ---
 
-## 3. Deep Residual Discovery Engine
+## 3. Residual Discovery Engine and Container Isolation
 
-When an application is inspected or queued for deep removal, [`src/cleaner/heuristic.rs`](src/cleaner/heuristic.rs) crawls all associated folders:
+When an application is inspected or queued for cleaning, [`src/cleaner/heuristic.rs`](src/cleaner/heuristic.rs) crawls associated folders while enforcing container isolation:
 
 ```
                       Target Application: "app_name"
                                     │
     ┌───────────────────────────────┼──────────────────────────────┐
     ▼                               ▼                              ▼
-[XDG Data & Config]         [Direct Dotdirs]              [Container Sandboxes]
+[XDG Data and Config]       [Direct Dotdirs]              [Container Sandboxes]
 • ~/.config/app_name        • ~/.app_name                 • ~/.var/app/app_id (Flatpak)
 • ~/.cache/app_name         • ~/.config/app_name.conf     • ~/snap/app_name (Snap)
 • ~/.local/share/app_name
 • ~/.local/state/app_name
     │                               │                              │
     ▼                               ▼                              ▼
-[Desktop & Icons]           [Symlink Graph]               [Known Signatures]
+[Desktop Launchers]         [Symlink Graph]               [Known Signatures]
 • ~/.local/share/           • ~/.local/bin/<symlink>      • Multi-dir signatures
-  applications/<app>.desktop• /usr/local/bin/<symlink>      (VS Code, Chrome, etc.)
+  applications/<app>.desktop• /usr/local/bin/<symlink>      (VS Code, Chrome, Firefox)
 • ~/.local/share/icons/...
 ```
 
 <details>
-<summary><b>📋 Heuristic Matching Strategy</b></summary>
+<summary><b>Container Isolation and Anchor Firewall</b></summary>
 
-1. **Exact App ID & Executable Stem:** Matches the binary name, package name, and reverse-DNS suffix (e.g. `org.mozilla.firefox` -> `firefox`).
-2. **Curated Signatures (`src/cleaner/signatures.rs`):** Contains hardcoded, verified mapping rules for complex applications that scatter files across non-standard directories (e.g., `.vscode`, `.mozilla`, `.rustup`).
-3. **Symlink Graph Traversal (`src/scanner/symlink_graph.rs`):** Traces GNU Stow / Homebrew style symlinks to identify orphan links pointing to the target executable.
+- Container isolation: Flatpaks only discover `~/.var/app/<app_id>`. Snaps only discover `~/snap/<app_name>`.
+- Shared repository protection: Shared directories like `~/.cache/flatpak` and `~/.local/share/flatpak` are never scanned as per-app residuals.
+- Anchor firewall: Forbidden keywords (`flatpak`, `snap`, `systemd`, `usr`, `bin`, `lib`, `etc`) are blocked from being used as search anchors.
+- System binary protection: Shared binaries (`/usr/bin/flatpak`, `/usr/bin/snap`, `/usr/bin/bash`) are never listed as deletion targets.
 
 </details>
 
 ---
 
-## 4. Safety Barrier & Deletion Guardrails
+## 4. Safety Barrier and Deletion Guardrails
 
-Safety is paramount in SweepX. Before any file or directory deletion is permitted, it must pass the zero-tolerance validator in [`src/cleaner/safety.rs`](src/cleaner/safety.rs).
+Before any path is deleted, it must pass the zero-tolerance validator in [`src/cleaner/safety.rs`](src/cleaner/safety.rs).
 
 ```
 Target Deletion Path ──▶ [ Safety Barrier Validation ]
@@ -119,81 +121,80 @@ Target Deletion Path ──▶ [ Safety Barrier Validation ]
                  ▼                               ▼
        [ Critical Blacklist ]          [ Path Sanitization ]
        • /                             • No relative paths ("..")
-       • /home, /root, $HOME           • No root XDG base dirs
+       • /home, /root, $HOME           • No base XDG roots
        • /usr, /bin, /etc, /lib        • Must be exact child folder
-       • /var, /boot, /sys, /proc      • Path must exist on disk
+       • /var/lib/flatpak, /snap       • Path must exist on disk
                  │                               │
                  ▼                               ▼
-            ⛔ BLOCKED                      ✅ APPROVED
-        (SafetyError thrown)            (Reversible Trash / Purge)
+            BLOCKED                         APPROVED
+    (SafetyViolation returned)         (Trash or Permanent Unlink)
 ```
 
 <details>
-<summary><b>📋 Safety Validator Rules & Blacklists</b></summary>
+<summary><b>Protected Directory Rules</b></summary>
 
 ```rust
-// Forbidden Critical Paths (Hard Block)
-const FORBIDDEN_EXACT_PATHS: &[&str] = &[
+// Examples of protected paths blocked by SafetyValidator
+const PROTECTED_SYSTEM_DIRS: &[&str] = &[
     "/", "/root", "/home", "/etc", "/usr", "/bin", "/sbin",
-    "/lib", "/lib64", "/var", "/boot", "/sys", "/proc", "/dev",
-    "/usr/bin", "/usr/lib", "/usr/share", "/var/lib"
+    "/lib", "/lib64", "/var", "/boot", "/sys", "/proc",
+    "/usr/bin/flatpak", "/usr/bin/snap", "/var/lib/flatpak", "/var/lib/snapd"
 ];
 ```
-- **XDG Base Root Protection:** Never permits deleting `~/.config` or `~/.cache` directly; only named subdirectories (e.g. `~/.config/app_name`) are accepted.
-- **Reversible Deletion Default:** By default, files are sent to the system Trash (`gio trash` / Freedesktop Trash spec) with permanent deletion requiring explicit confirmation.
+- User Base Root Protection: Deleting `~/.config`, `~/.cache`, `~/.local/share/flatpak`, or `~/.local/share/icons` directly is blocked.
+- Reversible Default: Files are sent to the desktop Trash by default (`gio trash`).
 
 </details>
 
 ---
 
-## 5. Live Install Watcher & Audit Database
+## 5. Transparent Footprint Accounting
 
-For software installed from source (`./configure && make install` or custom bash scripts), SweepX provides an active installation tracker:
+SweepX computes storage footprints using exact addition in [`src/ui/views/inspector.rs`](src/ui/views/inspector.rs):
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  📦 Application Payload (DNF / Flatpak / Snap / /opt)        │
+│     Example: 433.7 MB (google-chrome-stable)                │
+├─────────────────────────────────────────────────────────────┤
+│  📂 Discovered User Artifacts & Sandboxes                   │
+│     • Configuration (~/.config): 5.10 GB                    │
+│     • Cache Data (~/.cache): 4.09 GB                        │
+├─────────────────────────────────────────────────────────────┤
+│  📊 Total Footprint = 433.7 MB + 5.10 GB + 4.09 GB = 9.62 GB│
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 6. Installation Watcher and SQLite Audit Trail
+
+For source builds (`./configure && make install` or custom scripts), SweepX tracks file changes:
 
 ```
 User runs: sweepx watch ./install.sh
   │
-  ├─▶ 1. Take recursive Filesystem Snapshot (src/tracker/snapshot.rs)
-  ├─▶ 2. Execute installer child process
-  ├─▶ 3. Take post-install Snapshot & compute diff
-  └─▶ 4. Save exact manifest to SQLite DB (~/.local/share/sweepx/history.db)
+  ├─▶ 1. Take recursive filesystem snapshot (src/tracker/snapshot.rs)
+  ├─▶ 2. Run installer child process
+  ├─▶ 3. Take post-install snapshot and compute diff
+  └─▶ 4. Save manifest to SQLite database (~/.local/share/sweepx/history.db)
 ```
 
-<details>
-<summary><b>📋 Database Schema & Space Recovery Tracking</b></summary>
-
-- **`install_manifests`**: Stores application name, install timestamp, total bytes, and installer command.
-- **`manifest_files`**: Records every created binary, man page, icon, and config file.
-- **`audit_logs`**: Logs all clean/purge actions and keeps a lifetime running tally of disk space recovered.
-
-</details>
-
 ---
 
-## 6. Documentation & Architecture References
+## Subsystem Reference Summary
 
-All of these subsystems are fully documented across the project:
-
-- 📄 **[`ARCHITECTURE.md`](ARCHITECTURE.md):** Complete component breakdowns, subsystem interaction matrices, and sequence diagrams.
-- 📄 **[`PRESENTATION.md`](PRESENTATION.md):** 15-minute presenter-friendly slide deck and onboarding overview.
-- 📄 **[`README.md`](README.md):** User-facing features, CLI commands, and installation instructions.
-- 📄 **[`llms.txt`](llms.txt):** Machine-readable technical architecture summary.
-- 🧪 **`tests/` Suite:** 30 unit and integration tests verifying every scanner, safety guard, and cleaner heuristic.
-
----
-
-## Quick Reference Summary
-
-| Subsystem | Source Path | Key Safety & Functionality |
+| Subsystem | Source Path | Responsibility |
 | :--- | :--- | :--- |
-| **Native PM Scanner** | `src/scanner/native/` | Reads DPKG, Pacman, and RPM package registries |
-| **Container Scanner** | `src/scanner/flatpak.rs`, `snap.rs` | Queries Flatpak/Snap CLI and export directories |
-| **Desktop Discovery** | `src/scanner/desktop_entry.rs` | Indexes `~/.local/share/applications` & `/usr/share/` |
-| **Residual Crawler** | `src/cleaner/heuristic.rs` | Inspects XDG config, cache, state, dotdirs, and icons |
-| **Safety Barrier** | `src/cleaner/safety.rs` | Zero-tolerance blacklist preventing system path deletion |
-| **Install Tracker** | `src/tracker/snapshot.rs` | Pre/post install directory diffing for 100% clean uninstalls |
-| **Database Audit** | `src/db/repository.rs` | SQLite persistence for manifests and freed space metrics |
+| **Native PM Scanner** | `src/scanner/native/` | Queries DPKG, Pacman, and RPM package registries |
+| **Container Scanner** | `src/scanner/flatpak.rs`, `snap.rs` | Queries Flatpak and Snap CLI and exports |
+| **Manual Scanner** | `src/scanner/manual.rs` | Crawls `/opt` with package ownership verification |
+| **Desktop Discovery** | `src/scanner/desktop_entry.rs` | Indexes `~/.local/share/applications` and `/usr/share/` |
+| **Residual Crawler** | `src/cleaner/heuristic.rs` | Discovers XDG configs, caches, state, and sandboxes |
+| **Safety Barrier** | `src/cleaner/safety.rs` | Blocks deletion of critical system and container paths |
+| **Install Tracker** | `src/tracker/snapshot.rs` | Pre/post install directory diffing for clean removals |
+| **Database Audit** | `src/db/repository.rs` | SQLite store for manifests and recovered space metrics |
 
 ---
 
-*Presentation prepared for SweepX Engineering & Architecture Review.*
+*Prepared for SweepX Engineering and Architecture Review.*

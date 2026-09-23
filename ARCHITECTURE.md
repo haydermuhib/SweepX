@@ -1,10 +1,10 @@
-# SweepX Architecture & Contributor Guide
+# SweepX Architecture and Contributor Guide
 
-This document maps out the internal architecture, subsystems, data flow, and file responsibilities of **SweepX**. It is designed to help contributors understand how the application works and where to add new features or fixes.
+This document describes the internal architecture, subsystems, data flow, and file responsibilities of SweepX.
 
 ---
 
-## 1. High-Level Architecture Diagram
+## 1. System Architecture
 
 ```mermaid
 graph TD
@@ -16,17 +16,17 @@ graph TD
     subgraph Core Engine
         Scanner["Multi-Tier Scanner<br><code>src/scanner/orchestrator.rs</code>"]
         Tracker["Installation Watcher<br><code>src/tracker/snapshot.rs</code>"]
-        Cleaner["Clean & Purge Engine<br><code>src/cleaner/executor.rs</code>"]
+        Cleaner["Clean and Purge Engine<br><code>src/cleaner/executor.rs</code>"]
         Safety["Safety Barrier<br><code>src/cleaner/safety.rs</code>"]
         DB["SQLite Database<br><code>src/db/repository.rs</code>"]
         Updater["GitHub Self-Updater<br><code>src/updater/mod.rs</code>"]
     end
 
-    subgraph Data Sources & Systems
+    subgraph Data Sources and Systems
         NativePM["Native PMs<br>(dpkg / pacman / rpm)"]
         Containers["Containers<br>(Flatpak / Snap)"]
         Filesystem["Filesystem<br>(/opt, ~/.local/bin, AppImages)"]
-        XDG["XDG Tree & Services<br>(~/.config, ~/.cache, systemd)"]
+        XDG["XDG Tree and Services<br>(~/.config, ~/.cache, systemd)"]
     end
 
     CLI --> Scanner
@@ -51,121 +51,137 @@ graph TD
 
 ---
 
-## 2. Subsystem File Map
+## 2. Subsystem Breakdown
 
-### 📦 1. Data Models (`src/models/`)
-Defines the core data structures passed across scanners, database, and UI.
-
-| File | Primary Structs | Responsibility |
-| :--- | :--- | :--- |
-| [`src/models/app.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/models/app.rs) | `Application`, `InstallMethod`, `AppCategory` | Represents an installed software package and its packaging origin. |
-| [`src/models/residual.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/models/residual.rs) | `ResidualCandidate`, `ResidualType`, `ResidualScanResult` | Represents leftover configs, caches, logs, and orphan services. |
-| [`src/models/artifact.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/models/artifact.rs) | `InstalledArtifact`, `SystemSweepItem`, `InstallManifest` | Stores snapshot manifests and system-wide cleanup items. |
-
----
-
-### 🔍 2. Discovery & Scanners (`src/scanner/`)
-Discovers user software across all packaging layers concurrently.
-
-```mermaid
-graph LR
-    Orchestrator["orchestrator.rs"] --> Native["native/ (apt, dnf, pacman)"]
-    Orchestrator --> Flatpak["flatpak.rs"]
-    Orchestrator --> Snap["snap.rs"]
-    Orchestrator --> AppImage["appimage.rs"]
-    Orchestrator --> Manual["manual.rs (/opt, ~/.local/bin)"]
-    Orchestrator --> Desktop["desktop_entry.rs"]
-    Orchestrator --> Symlinks["symlink_graph.rs"]
+```
+src/
+├── main.rs                  # Application entry point, CLI routing, and GUI launch
+├── lib.rs                   # Library exports and shared module definitions
+├── cli/                     # CLI parser, command handlers, and terminal output
+├── db/                      # SQLite database connection, schema, and queries
+├── models/                  # Core domain models (Application, Artifact, Residual)
+├── scanner/                 # Discovery engines across all packaging tiers
+│   ├── orchestrator.rs      # Multi-tier async scanner and deduplicator
+│   ├── desktop_entry.rs     # Freedesktop .desktop parser and icon resolver
+│   ├── flatpak.rs           # Flatpak CLI client and runtime parser
+│   ├── snap.rs              # Snap CLI client and revision tracker
+│   ├── appimage.rs          # AppImage detector, ELF header parser, and integrator
+│   ├── manual.rs            # /opt and ~/.local/bin scanner with package ownership check
+│   ├── symlink_graph.rs     # Stow-style symlink graph resolver
+│   └── native/              # Package manager clients (dpkg, rpm, pacman)
+├── cleaner/                 # Residual detection, safety validator, and executor
+│   ├── safety.rs            # Zero-tolerance safety validator and protected path blacklist
+│   ├── heuristic.rs         # Isolated container, XDG, and dotdir residual crawler
+│   ├── signatures.rs        # Known directory patterns dictionary for complex apps
+│   ├── executor.rs          # Reversible Trash and permanent file removal executor
+│   ├── privilege.rs         # Root elevation manager via pkexec and sudo
+│   └── system_sweep.rs      # System optimizer (old Snaps, unused Flatpaks, package caches)
+├── tracker/                 # Filesystem snapshot diffing and install watcher
+├── ui/                      # egui / eframe desktop application
+│   ├── app.rs               # Main GUI loop and background worker channel receiver
+│   ├── theme.rs             # Dark theme tokens, typography, and palette
+│   └── views/               # Modal dialogs, dashboard table, optimizer, and audit views
+└── updater/                 # Self-updater querying GitHub Releases API
 ```
 
-| File | Function / Logic | Responsibility |
+---
+
+### 1. Multi-Tier Scanner Engine (`src/scanner/`)
+
+The scanner queries package registries, container runtimes, and local directories concurrently.
+
+| File | Scanner Type | Responsibility |
 | :--- | :--- | :--- |
-| [`src/scanner/orchestrator.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/scanner/orchestrator.rs) | `scan_all_installed_apps()` | Coordinates parallel asynchronous scanning across all tiers. |
-| [`src/scanner/native/apt.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/scanner/native/apt.rs) | `AptScanner` | Queries Debian/Ubuntu `dpkg-query` and formats package records. |
-| [`src/scanner/native/dnf.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/scanner/native/dnf.rs) | `DnfScanner` | Queries Fedora/RHEL `rpm -qa` metadata. |
-| [`src/scanner/native/pacman.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/scanner/native/pacman.rs) | `PacmanScanner` | Queries Arch Linux `pacman -Qi` databases. |
-| [`src/scanner/flatpak.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/scanner/flatpak.rs) | `FlatpakScanner` | Parses user and system Flatpak installations via `flatpak list`. |
-| [`src/scanner/snap.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/scanner/snap.rs) | `SnapScanner` | Inspects Snap revisions, runtimes, and active packages. |
-| [`src/scanner/appimage.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/scanner/appimage.rs) | `AppImageScanner` | Discovers standalone AppImages and extracts embedded icons/metadata. |
-| [`src/scanner/manual.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/scanner/manual.rs) | `ManualScanner` | Crawls `/opt` and `~/.local/bin` for unmanaged binaries. |
-| [`src/scanner/desktop_entry.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/scanner/desktop_entry.rs) | `DesktopEntryScanner` | Parses Freedesktop `.desktop` files, Exec paths, and icon keys. |
-| [`src/scanner/symlink_graph.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/scanner/symlink_graph.rs) | `SymlinkGraph` | Maps symlink graphs and identifies broken / dangling symlinks. |
+| [`src/scanner/orchestrator.rs`](src/scanner/orchestrator.rs) | `ScannerOrchestrator` | Runs all tier scanners concurrently, applies deduplication rules, and merges desktop launchers with native packages. |
+| [`src/scanner/native/apt.rs`](src/scanner/native/apt.rs) | `AptScanner` | Queries Debian/Ubuntu `dpkg-query` and parses status records. |
+| [`src/scanner/native/dnf.rs`](src/scanner/native/dnf.rs) | `DnfScanner` | Queries Fedora/RHEL/openSUSE `rpm` database for installed software. |
+| [`src/scanner/native/pacman.rs`](src/scanner/native/pacman.rs) | `PacmanScanner` | Queries Arch Linux `pacman -Qi` for local packages. |
+| [`src/scanner/flatpak.rs`](src/scanner/flatpak.rs) | `FlatpakScanner` | Parses output from `flatpak list --app` and extracts versions, sizes, and IDs. |
+| [`src/scanner/snap.rs`](src/scanner/snap.rs) | `SnapScanner` | Inspects Snap revisions, publisher channels, and package status. |
+| [`src/scanner/appimage.rs`](src/scanner/appimage.rs) | `AppImageScanner` | Discovers standalone AppImages, verifies magic bytes, and provides desktop integration. |
+| [`src/scanner/manual.rs`](src/scanner/manual.rs) | `ManualScanner` | Crawls `/opt`, `~/.local/bin`, and `~/Applications`. Validates files against an extension blacklist, verifies ELF headers, and checks `rpm -qf`, `dpkg -S`, or `pacman -Qo` to prevent duplicating native packages. |
+| [`src/scanner/desktop_entry.rs`](src/scanner/desktop_entry.rs) | `DesktopEntryScanner` | Scans `~/.local/share/applications` and `/usr/share/applications`, extracting Exec commands, Categories, and icon paths. |
+| [`src/scanner/symlink_graph.rs`](src/scanner/symlink_graph.rs) | `SymlinkGraph` | Traces symlink graphs in `/usr/local/bin` and `~/.local/bin` to locate target binaries. |
 
 ---
 
-### 🛡️ 3. Safety & Residual Cleaner (`src/cleaner/`)
-Validates paths and deletes leftover files safely.
+### 2. Safety Barrier and Residual Cleaner (`src/cleaner/`)
+
+Every candidate path must pass validation before removal.
 
 ```mermaid
 graph TD
     Target["Residual Target Paths"] --> Safety{"safety.rs<br>(Blacklist Check)"}
-    Safety -- "Matches /, /usr, /home/$USER, /etc" --> Denied["❌ Block Deletion (SafetyError)"]
-    Safety -- "Passes Validation" --> Executor["executor.rs<br>(Trash or Unlink)"]
+    Safety -- "Matches System Root, Base XDG, or Shared Container" --> Denied["Block Deletion (SafetyViolation)"]
+    Safety -- "Passes Path Depth and Blacklist Gates" --> Executor["executor.rs<br>(Trash or Permanent Unlink)"]
     Executor --> Audit["db/repository.rs<br>(Record Freed Space)"]
 ```
 
-| File | Function / Logic | Responsibility |
+| File | Component | Responsibility |
 | :--- | :--- | :--- |
-| [`src/cleaner/safety.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/cleaner/safety.rs) | `SafetyValidator` | Validates every deletion target against strict blacklists. |
-| [`src/cleaner/heuristic.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/cleaner/heuristic.rs) | `ResidualCleaner` | Heuristic crawler scanning XDG config, cache, share, and systemd units. |
-| [`src/cleaner/signatures.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/cleaner/signatures.rs) | `ResidualSignatures` | Known path patterns dictionary for popular Linux software. |
-| [`src/cleaner/executor.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/cleaner/executor.rs) | `DeletionExecutor` | Executes file removals via reversible Trash or permanent unlinking. |
-| [`src/cleaner/system_sweep.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/cleaner/system_sweep.rs) | `SystemSweepEngine` | Prunes disabled Snap revisions, Flatpak runtimes, and package caches. |
-| [`src/cleaner/privilege.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/cleaner/privilege.rs) | `PrivilegeManager` | Manages root elevation requests via `pkexec` or `sudo`. |
+| [`src/cleaner/safety.rs`](src/cleaner/safety.rs) | `SafetyValidator` | Validates target paths against protected system roots (`/`, `/usr`, `/etc`), base XDG folders (`~/.config`, `~/.cache`), and shared container repositories (`~/.local/share/flatpak`, `/var/lib/flatpak`, `/var/lib/snapd`, `/usr/bin/flatpak`). |
+| [`src/cleaner/heuristic.rs`](src/cleaner/heuristic.rs) | `ResidualCleaner` | Crawls app-specific folders. Enforces container isolation (`~/.var/app/<id>` for Flatpak, `~/snap/<name>` for Snap), evaluates direct dotdirs (`~/.<app>`), and filters out forbidden keywords (`flatpak`, `snap`, `systemd`, `usr`, `bin`). |
+| [`src/cleaner/signatures.rs`](src/cleaner/signatures.rs) | `ResidualSignatures` | Dictionary of known directory patterns for applications that place data across multiple non-standard paths (e.g. VS Code, Chrome, Firefox). |
+| [`src/cleaner/executor.rs`](src/cleaner/executor.rs) | `DeletionExecutor` | Removes files by moving them to the desktop Trash or by unlinking permanently upon explicit user confirmation. |
+| [`src/cleaner/system_sweep.rs`](src/cleaner/system_sweep.rs) | `SystemSweepEngine` | Cleans shared system bloat: removes disabled Snap revisions, runs `flatpak uninstall --unused`, and clears package manager caches. |
+| [`src/cleaner/privilege.rs`](src/cleaner/privilege.rs) | `PrivilegeManager` | Manages root elevation requests via `pkexec` or `sudo` when working with system-level paths. |
 
 ---
 
-### 📸 4. Installation Watcher (`src/tracker/`)
-Enables clean uninstallation of software compiled from source (`make install`).
+### 3. Installation Watcher (`src/tracker/`)
 
-| File | Function / Logic | Responsibility |
+Tracks files created during manual builds (`make install` or custom install scripts) to allow clean uninstallation later.
+
+| File | Component | Responsibility |
 | :--- | :--- | :--- |
-| [`src/tracker/snapshot.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/tracker/snapshot.rs) | `FilesystemSnapshot` | Captures recursive directory states before and after an install command. |
-| [`src/tracker/mod.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/tracker/mod.rs) | `InstallWatcher` | Calculates snapshot diffs (created/modified files) and logs manifests. |
+| [`src/tracker/snapshot.rs`](src/tracker/snapshot.rs) | `FilesystemSnapshot` | Captures recursive directory trees in `/usr/local`, `~/.local`, and `/opt` before and after an installation command. |
+| [`src/tracker/mod.rs`](src/tracker/mod.rs) | `InstallWatcher` | Calculates directory diffs (new and modified files) and writes manifests to the SQLite database. |
 
 ---
 
-### 💾 5. Database Layer (`src/db/`)
-Embedded SQLite storage with zero server dependencies.
+### 4. Database Storage (`src/db/`)
+
+Embedded SQLite storage for audit history and installation manifests.
 
 | File | Purpose |
 | :--- | :--- |
-| [`src/db/schema.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/db/schema.rs) | Creates tables: `install_manifests`, `manifest_files`, `audit_logs`. |
-| [`src/db/repository.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/db/repository.rs) | High-level API for saving manifests, recording logs, and computing total space freed. |
+| [`src/db/schema.rs`](src/db/schema.rs) | Manages tables: `install_manifests`, `manifest_files`, and `audit_logs`. |
+| [`src/db/repository.rs`](src/db/repository.rs) | Provides methods to store manifests, record uninstallation actions, and compute cumulative disk space recovered. |
 
 ---
 
-### 🖥️ 6. User Interface (`src/ui/`)
-Built with `eframe` (60 FPS hardware-accelerated GUI).
+### 5. User Interface (`src/ui/`)
+
+Desktop interface built on `eframe` and `egui`.
 
 | File | View / Component | Responsibility |
 | :--- | :--- | :--- |
-| [`src/ui/app.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/ui/app.rs) | `SweepXApp` | Main event loop, background Tokio channel receiver, and layout shell. |
-| [`src/ui/theme.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/ui/theme.rs) | `Theme` | Dark mode styling, custom font scale, and visual tokens. |
-| [`src/ui/views/dashboard.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/ui/views/dashboard.rs) | `DashboardView` | Application table, category filter pills, search bar, sorting, and metric cards. |
-| [`src/ui/views/inspector.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/ui/views/inspector.rs) | `InspectorModal` | Detailed application metadata viewer & launcher integrator. |
-| [`src/ui/views/clean_modal.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/ui/views/clean_modal.rs) | `CleanModal` | Residual selection checkboxes, safety summary, and purge confirmation. |
-| [`src/ui/views/optimizer.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/ui/views/optimizer.rs) | `OptimizerView` | System-wide bloat sweeper (old Snaps, unused Flatpaks, package caches). |
-| [`src/ui/views/history.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/ui/views/history.rs) | `HistoryView` | Audit log timeline and lifetime disk space recovery metrics. |
+| [`src/ui/app.rs`](src/ui/app.rs) | `SweepXApp` | Main event loop, background Tokio channel receiver, and tab management. |
+| [`src/ui/theme.rs`](src/ui/theme.rs) | `Theme` | Dark theme styling tokens, spacing rules, and color palette. |
+| [`src/ui/views/dashboard.rs`](src/ui/views/dashboard.rs) | `DashboardView` | Application inventory table, packaging tier filter pills, search bar, and summary metric cards. |
+| [`src/ui/views/inspector.rs`](src/ui/views/inspector.rs) | `InspectorModal` | Detailed modal displaying installed application payload, discovered user files, and total combined footprint. |
+| [`src/ui/views/clean_modal.rs`](src/ui/views/clean_modal.rs) | `CleanModal` | Residual selection list, safety check summary, and uninstallation confirmation. |
+| [`src/ui/views/optimizer.rs`](src/ui/views/optimizer.rs) | `OptimizerView` | System bloat cleaner (old Snaps, unused Flatpak runtimes, package manager caches). |
+| [`src/ui/views/history.rs`](src/ui/views/history.rs) | `HistoryView` | Audit log timeline and lifetime storage recovery statistics. |
 
 ---
 
-### 💻 7. CLI Subcommands (`src/cli/`)
-Headless automation and scripting interface.
+### 6. CLI Commands (`src/cli/`)
+
+Headless command-line interface for terminal workflows and scripts.
 
 | File | Purpose |
 | :--- | :--- |
-| [`src/cli/commands.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/cli/commands.rs) | CLI flag definition via `clap` (`list`, `inspect`, `clean`, `purge`, `sweep`, `watch`, `update`, `history`). |
-| [`src/cli/mod.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/cli/mod.rs) | Terminal output formatting, JSON serialization, and command execution. |
+| [`src/cli/commands.rs`](src/cli/commands.rs) | Subcommands defined with `clap`: `list`, `inspect`, `clean`, `purge`, `sweep`, `watch`, `update`, and `history`. |
+| [`src/cli/mod.rs`](src/cli/mod.rs) | Command execution, terminal tables, JSON output mode, and progress indicators. |
 
 ---
 
-### 🔄 8. GitHub Self-Updater (`src/updater/`)
-Automated in-place upgrades.
+### 7. In-Place Self-Updater (`src/updater/`)
 
 | File | Purpose |
 | :--- | :--- |
-| [`src/updater/mod.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/updater/mod.rs) | Queries GitHub Releases API, checks semver, downloads release asset, extracts `.tar.gz` if needed, and atomically swaps the running executable binary. |
+| [`src/updater/mod.rs`](src/updater/mod.rs) | Checks GitHub Releases for new versions, downloads assets, extracts tarballs, and atomically replaces the running binary. |
 
 ---
 
@@ -177,49 +193,49 @@ sequenceDiagram
     actor User
     participant UI as GUI / CLI
     participant Orch as Scanner Orchestrator
-    participant PM as Package Managers & Filesystem
-    participant Clean as Cleaner & Safety Barrier
+    participant PM as Package Managers and Filesystem
+    participant Clean as Cleaner and Safety Barrier
     participant DB as SQLite DB
 
-    User->>UI: Launch App / Run Command
+    User->>UI: Launch App or Run Command
     UI->>Orch: trigger_scan()
     par Concurrently query all tiers
-        Orch->>PM: Scan native (dpkg/pacman/rpm)
-        Orch->>PM: Scan Flatpak & Snap runtimes
-        Orch->>PM: Scan /opt, AppImages, .desktop
+        Orch->>PM: Scan native packages (dpkg / pacman / rpm)
+        Orch->>PM: Scan Flatpak and Snap runtimes
+        Orch->>PM: Scan /opt, AppImages, and .desktop files
     end
     PM-->>Orch: Return raw application records
-    Orch-->>UI: Populate unified application list
+    Orch-->>UI: Return unified, deduplicated application inventory
 
-    User->>UI: Select app to Deep Clean
-    UI->>Clean: find_residuals(app)
-    Clean-->>UI: Return residual candidates (~/.config, ~/.cache, systemd)
+    User->>UI: Select app to inspect or clean
+    UI->>Clean: discover_residuals_for_app(app)
+    Clean-->>UI: Return discovered residuals (~/.config, ~/.cache, ~/.var/app)
 
     User->>UI: Confirm Deletion
     UI->>Clean: execute_clean(selected_residuals)
     Clean->>Clean: validate_safety_blacklist(path)
     alt Path violates safety gate
-        Clean-->>UI: Abort & return SafetyError
+        Clean-->>UI: Abort and return SafetyViolation error
     else Path is safe
-        Clean->>PM: Move to Trash / Permanent unlink
+        Clean->>PM: Move to Trash or unlink permanently
         Clean->>DB: Record freed space in audit_logs
-        Clean-->>UI: Return success & update metrics
+        Clean-->>UI: Return success and update space metrics
     end
 ```
 
 ---
 
-## 4. How to Add a New Feature
+## 4. Contributing Guide
 
-### Adding a new Package Manager Scanner:
+### Adding a new package manager scanner:
 1. Create `src/scanner/native/<name>.rs` implementing package discovery.
-2. Register the scanner in [`src/scanner/orchestrator.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/scanner/orchestrator.rs).
+2. Register the scanner in [`src/scanner/orchestrator.rs`](src/scanner/orchestrator.rs).
 3. Add a corresponding test file in `tests/`.
 
-### Adding a new System Optimizer rule:
-1. Add the detection logic in [`src/cleaner/system_sweep.rs`](file:///home/haider/Desktop/MyGithub/SweepX/src/cleaner/system_sweep.rs).
-2. Wire the item into `scan_all_sweep_items()` so both the GUI Optimizer tab and `sweepx sweep` CLI automatically pick it up.
+### Adding a new system optimizer rule:
+1. Add detection logic in [`src/cleaner/system_sweep.rs`](src/cleaner/system_sweep.rs).
+2. Wire the rule into `scan_all_sweep_items()` so both the GUI Optimizer tab and `sweepx sweep` CLI pick it up automatically.
 
 ---
 
-*Dual-licensed under MIT and Apache-2.0. Copyright © Haider Ali Tariq and SweepX Contributors.*
+*Dual-licensed under MIT and Apache-2.0. Copyright (c) Haider Ali Tariq and SweepX Contributors.*
