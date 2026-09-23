@@ -101,3 +101,18 @@ fn test_sanitize_deletion_targets() {
     assert!(safe.contains(&PathBuf::from("/home/test/.config/myapp")));
     assert_eq!(rejected.len(), 2);
 }
+
+#[test]
+fn test_protects_shared_flatpak_and_snap_roots() {
+    assert!(SafetyValidator::is_path_safe_to_delete(&PathBuf::from("/usr/bin/flatpak")).is_err());
+    assert!(SafetyValidator::is_path_safe_to_delete(&PathBuf::from("/usr/bin/snap")).is_err());
+    assert!(SafetyValidator::is_path_safe_to_delete(&PathBuf::from("/var/lib/flatpak")).is_err());
+    assert!(SafetyValidator::is_path_safe_to_delete(&PathBuf::from("/var/lib/snapd")).is_err());
+    assert!(SafetyValidator::is_path_safe_to_delete(&PathBuf::from("/snap/bin")).is_err());
+
+    if let Some(home) = dirs::home_dir() {
+        assert!(SafetyValidator::is_path_safe_to_delete(&home.join(".cache/flatpak")).is_err());
+        assert!(SafetyValidator::is_path_safe_to_delete(&home.join(".local/share/flatpak")).is_err());
+        assert!(SafetyValidator::is_path_safe_to_delete(&home.join(".local/share/flatpak/repo")).is_err());
+    }
+}

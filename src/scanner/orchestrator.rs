@@ -36,11 +36,24 @@ pub fn apply_stage_batch(app_map: &mut HashMap<String, Application>, batch: Scan
         }
         ScanStageBatch::Flatpak(apps) => {
             for app in apps {
-                if let Some(existing) = app_map.get_mut(&app.id) {
+                let matching_key = if app_map.contains_key(&app.id) {
+                    Some(app.id.clone())
+                } else {
+                    app_map.keys().find(|k| {
+                        let existing = &app_map[*k];
+                        existing.id == app.id
+                            || (app.id.contains('.') && existing.id == app.id.split('.').last().unwrap_or(""))
+                    }).cloned()
+                };
+
+                if let Some(key) = matching_key {
+                    let mut existing = app_map.remove(&key).unwrap();
+                    existing.id = app.id.clone();
                     existing.install_method = InstallMethod::Flatpak;
-                    existing.version = app.version.or(existing.version.clone());
-                    existing.total_size_bytes = existing.total_size_bytes.max(app.total_size_bytes);
+                    existing.version = app.version.or(existing.version);
+                    existing.total_size_bytes = app.total_size_bytes.max(existing.total_size_bytes);
                     existing.artifacts.extend(app.artifacts);
+                    app_map.insert(app.id.clone(), existing);
                 } else {
                     app_map.insert(app.id.clone(), app);
                 }
@@ -54,11 +67,10 @@ pub fn apply_stage_batch(app_map: &mut HashMap<String, Application>, batch: Scan
                     app_map
                         .keys()
                         .find(|k| {
+                            let existing = &app_map[*k];
                             k.starts_with(&format!("{}_", app.id))
-                                || (app_map.get(*k).map_or(false, |a| {
-                                    a.install_method == InstallMethod::Snap
-                                        && (a.id.contains(&app.id) || a.name.to_lowercase() == app.name.to_lowercase())
-                                }))
+                                || existing.name.to_lowercase() == app.name.to_lowercase()
+                                || existing.id == app.id
                         })
                         .cloned()
                 };
@@ -68,7 +80,7 @@ pub fn apply_stage_batch(app_map: &mut HashMap<String, Application>, batch: Scan
                     existing.id = app.id.clone();
                     existing.install_method = InstallMethod::Snap;
                     existing.version = app.version.or(existing.version);
-                    existing.total_size_bytes += app.total_size_bytes;
+                    existing.total_size_bytes = app.total_size_bytes.max(existing.total_size_bytes);
                     existing.artifacts.extend(app.artifacts);
                     existing.is_system = app.is_system;
                     if existing.description.is_none() {
@@ -82,25 +94,65 @@ pub fn apply_stage_batch(app_map: &mut HashMap<String, Application>, batch: Scan
         }
         ScanStageBatch::Manual(apps) => {
             for app in apps {
-                if !app_map.contains_key(&app.id) {
+                // Only insert if no existing desktop or native app shares the same id or binary
+                let already_exists = app_map.values().any(|existing| {
+                    existing.id == app.id
+                        || (existing.exec_path.is_some() && existing.exec_path == app.exec_path)
+                });
+                if !already_exists {
                     app_map.insert(app.id.clone(), app);
                 }
             }
         }
         ScanStageBatch::Native(apps) => {
             for app in apps {
-                if let Some(existing) = app_map.get_mut(&app.id) {
+                // Find matching desktop or manual entry
+                let matching_key = if app_map.contains_key(&app.id) {
+                    Some(app.id.clone())
+                } else {
+                    app_map.keys().find(|k| {
+                        let existing = &app_map[*k];
+                        existing.id == app.id
+                            || (existing.exec_path.is_some() && existing.exec_path == app.exec_path)
+                            || is_name_fuzzy_match(&existing.name, &app.name)
+                            || is_name_fuzzy_match(&existing.id, &app.id)
+                    }).cloned()
+                };
+
+                if let Some(key) = matching_key {
+                    let mut existing = app_map.remove(&key).unwrap();
+                    existing.id = app.id.clone();
                     existing.install_method = app.install_method;
-                    existing.version = app.version.or(existing.version.clone());
-                    existing.total_size_bytes = existing.total_size_bytes.max(app.total_size_bytes);
-                    existing.description = existing.description.clone().or(app.description);
+                    existing.version = app.version.or(existing.version);
+                    existing.total_size_bytes = app.total_size_bytes.max(existing.total_size_bytes);
+                    existing.description = existing.description.or(app.description);
                     existing.is_system = app.is_system;
+                    if existing.exec_path.is_none() {
+                        existing.exec_path = app.exec_path;
+                    }
+                    app_map.insert(app.id.clone(), existing);
                 } else if !app.is_system {
                     app_map.insert(app.id.clone(), app);
                 }
             }
         }
     }
+}
+
+/// Checks if two application names/IDs are equivalent (e.g. google-chrome vs google-chrome-stable).
+fn is_name_fuzzy_match(a: &str, b: &str) -> bool {
+    let a_clean = a.to_lowercase().replace('-', "").replace('_', "");
+    let b_clean = b.to_lowercase().replace('-', "").replace('_', "");
+    if a_clean == b_clean {
+        return true;
+    }
+    if a_clean.starts_with(&b_clean) || b_clean.starts_with(&a_clean) {
+        let diff = (a_clean.len() as isize - b_clean.len() as isize).abs();
+        if diff <= 7 {
+            return true;
+        }
+    }
+    false
 }
 
 /// Concurrently scans and aggregates applications across all system packaging tiers.

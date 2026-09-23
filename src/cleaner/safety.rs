@@ -85,6 +85,12 @@ const PROTECTED_SYSTEM_DIRS: &[&str] = &[
     "/var/run",
     "/var/spool",
     "/var/tmp",
+    "/var/lib/flatpak",
+    "/var/lib/snapd",
+    "/snap",
+    "/snap/bin",
+    "/usr/bin/flatpak",
+    "/usr/bin/snap",
 ];
 
 pub struct SafetyValidator;
@@ -128,11 +134,15 @@ impl SafetyValidator {
             let protected_user_bases = [
                 norm_home.join(".config"),
                 norm_home.join(".cache"),
+                norm_home.join(".cache/flatpak"),
                 norm_home.join(".local"),
                 norm_home.join(".local/share"),
+                norm_home.join(".local/share/flatpak"),
+                norm_home.join(".local/share/flatpak/repo"),
                 norm_home.join(".local/state"),
                 norm_home.join(".local/bin"),
                 norm_home.join(".local/share/applications"),
+                norm_home.join(".local/share/icons"),
                 norm_home.join(".var"),
                 norm_home.join(".var/app"),
                 norm_home.join("snap"),

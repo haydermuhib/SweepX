@@ -1,12 +1,20 @@
 use super::safety::SafetyValidator;
 use super::signatures::find_signature;
-use crate::models::{Application, ArtifactKind, ResidualCandidate};
+use crate::models::{Application, ArtifactKind, InstallMethod, ResidualCandidate};
 use crate::scanner::manual::calculate_dir_size;
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+/// Reserved keywords, system tooling, and generic names that must NEVER be used as folder anchors.
+const FORBIDDEN_ANCHORS: &[&str] = &[
+    "flatpak", "snap", "systemd", "bin", "sbin", "usr", "opt", "etc", "lib", "lib64",
+    "share", "local", "config", "cache", "state", "gnome", "kde", "gtk", "qt", "desktop",
+    "applications", "icons", "pixmaps", "bash", "profile", "zsh", "system", "root",
+    "run", "app", "apps", "temp", "tmp", "var", "env", "sh", "python", "python3", "perl",
+    "ruby", "node", "npm", "cargo", "rust", "rustup", "data"
+];
 
 /// Strictly discovers associated configuration, cache, data, and state paths for a specific application.
-/// Anchored strictly to the application's exact ID, binary name, desktop launcher, and container ID.
 pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandidate> {
     let app_clone = app.clone();
     tokio::task::spawn_blocking(move || {
@@ -17,12 +25,6 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
             Some(h) => h,
             None => return candidates,
         };
-
-        let config_base = home_dir.join(".config");
-        let cache_base = home_dir.join(".cache");
-        let data_base = home_dir.join(".local/share");
-        let state_base = home_dir.join(".local/state");
-        let desktop_base = home_dir.join(".local/share/applications");
 
         // 0. Check SQLite Install Watcher Manifest (Exact recorded files at install time)
         if let Ok(db) = crate::db::Database::open_default() {
@@ -40,44 +42,116 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
             }
         }
 
-        // 1. Direct Anchor Identifiers (Exact App ID, Executable Stem, and Package Name)
+        // ==========================================
+        // 1. ISOLATED CONTAINER PURGE (Flatpak & Snap)
+        // ==========================================
+        if app_clone.install_method == InstallMethod::Flatpak {
+            // Flatpak user sandbox is strictly contained in ~/.var/app/<app.id>
+            let flatpak_sandbox = home_dir.join(".var/app").join(&app_clone.id);
+            check_and_add_candidate(
+                &mut candidates,
+                &mut seen_paths,
+                &app_clone,
+                flatpak_sandbox,
+                ArtifactKind::SandboxDir,
+                1.0,
+            );
+
+            // Desktop file export
+            if let Some(ref desk) = app_clone.desktop_file {
+                check_and_add_candidate(
+                    &mut candidates,
+                    &mut seen_paths,
+                    &app_clone,
+                    desk.clone(),
+                    ArtifactKind::DesktopEntry,
+                    1.0,
+                );
+            }
+
+            return candidates;
+        }
+
+        if app_clone.install_method == InstallMethod::Snap {
+            // Snap user sandbox is strictly contained in ~/snap/<app.name>
+            let snap_sandbox = home_dir.join("snap").join(&app_clone.name);
+            check_and_add_candidate(
+                &mut candidates,
+                &mut seen_paths,
+                &app_clone,
+                snap_sandbox,
+                ArtifactKind::SandboxDir,
+                1.0,
+            );
+
+            // Desktop file export
+            if let Some(ref desk) = app_clone.desktop_file {
+                check_and_add_candidate(
+                    &mut candidates,
+                    &mut seen_paths,
+                    &app_clone,
+                    desk.clone(),
+                    ArtifactKind::DesktopEntry,
+                    1.0,
+                );
+            }
+
+            return candidates;
+        }
+
+        // ==========================================
+        // 2. NATIVE & MANUAL APPLICATION DISCOVERY
+        // ==========================================
+        let config_base = home_dir.join(".config");
+        let cache_base = home_dir.join(".cache");
+        let data_base = home_dir.join(".local/share");
+        let state_base = home_dir.join(".local/state");
+        let desktop_base = home_dir.join(".local/share/applications");
+
         let mut exact_anchors: Vec<String> = Vec::new();
-        exact_anchors.push(app_clone.id.to_lowercase());
-        exact_anchors.push(app_clone.name.to_lowercase());
+
+        let id_clean = app_clone.id.to_lowercase();
+        let name_clean = app_clone.name.to_lowercase();
+
+        if is_valid_anchor(&id_clean) {
+            exact_anchors.push(id_clean.clone());
+        }
+        if is_valid_anchor(&name_clean) && !exact_anchors.contains(&name_clean) {
+            exact_anchors.push(name_clean.clone());
+        }
 
         if let Some(ref exec) = app_clone.exec_path {
             if let Some(stem) = exec.file_stem() {
                 let stem_lower = stem.to_string_lossy().to_lowercase();
-                if !exact_anchors.contains(&stem_lower) {
+                if is_valid_anchor(&stem_lower) && !exact_anchors.contains(&stem_lower) {
                     exact_anchors.push(stem_lower);
                 }
             }
         }
 
-        // If ID is reverse-DNS (e.g. org.mozilla.firefox), also include the trailing component (e.g. firefox)
+        // If ID is reverse-DNS (e.g. org.mozilla.firefox), also extract trailing component
         if app_clone.id.contains('.') {
             if let Some(last) = app_clone.id.split('.').last() {
                 let last_lower = last.to_lowercase();
-                if !exact_anchors.contains(&last_lower) && last_lower.len() > 1 {
+                if is_valid_anchor(&last_lower) && !exact_anchors.contains(&last_lower) {
                     exact_anchors.push(last_lower);
                 }
             }
         }
 
-        // 2. Exact Path Target Checks in Standard XDG Bases and Home Root Dotdirs
+        // Direct Target Checks in Standard XDG Bases and Home Root Dotdirs
         for anchor in &exact_anchors {
-            // Direct home root dot-directory (e.g. ~/.feynman, ~/.docker, ~/.rustup)
-            if !anchor.is_empty() && anchor != "bash" && anchor != "profile" && anchor != "zsh" && anchor != "config" && anchor != "cache" && anchor != "local" {
-                let dotdir = home_dir.join(format!(".{}", anchor));
-                check_and_add_candidate(
-                    &mut candidates,
-                    &mut seen_paths,
-                    &app_clone,
-                    dotdir,
-                    ArtifactKind::ConfigDir,
-                    0.95,
-                );
-            }
+            // Direct home root dot-directory (e.g. ~/.feynman, ~/.docker)
+            let dotdir = home_dir.join(format!(".{}", anchor));
+            check_and_add_candidate(
+                &mut candidates,
+                &mut seen_paths,
+                &app_clone,
+                dotdir,
+                ArtifactKind::ConfigDir,
+                0.95,
+            );
+
             // ~/.config/<anchor>
             let cfg = config_base.join(anchor);
             check_and_add_candidate(
@@ -132,9 +206,21 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
                 ArtifactKind::DesktopEntry,
                 1.0,
             );
+
+            // User application icons
+            for ext in ["svg", "png"] {
+                let icon_hicolor = home_dir.join(format!(".local/share/icons/hicolor/scalable/apps/{}.{}", anchor, ext));
+                check_and_add_candidate(&mut candidates, &mut seen_paths, &app_clone, icon_hicolor, ArtifactKind::DesktopEntry, 1.0);
+                
+                let icon_top = home_dir.join(format!(".local/share/icons/{}.{}", anchor, ext));
+                check_and_add_candidate(&mut candidates, &mut seen_paths, &app_clone, icon_top, ArtifactKind::DesktopEntry, 1.0);
+
+                let icon_pixmap = home_dir.join(format!(".local/share/pixmaps/{}.{}", anchor, ext));
+                check_and_add_candidate(&mut candidates, &mut seen_paths, &app_clone, icon_pixmap, ArtifactKind::DesktopEntry, 1.0);
+            }
         }
 
-        // 3. Known Verified Signatures (For multi-directory apps like VS Code or Firefox)
+        // 3. Known Verified Signatures (For multi-directory apps like VS Code, Firefox, Chrome)
         for term in [&app_clone.id, &app_clone.name] {
             if let Some(sig) = find_signature(term) {
                 for &dir in sig.config_dirs {
@@ -184,54 +270,33 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
             }
         }
 
-        // 4. Container Sandboxes
-        // Flatpak: ~/.var/app/<app.id>
-        let flatpak_sandbox = home_dir.join(".var/app").join(&app_clone.id);
-        check_and_add_candidate(
-            &mut candidates,
-            &mut seen_paths,
-            &app_clone,
-            flatpak_sandbox,
-            ArtifactKind::SandboxDir,
-            1.0,
-        );
-
-        // Snap: ~/snap/<app.name>
-        let snap_dir = home_dir.join("snap").join(&app_clone.name);
-        check_and_add_candidate(
-            &mut candidates,
-            &mut seen_paths,
-            &app_clone,
-            snap_dir,
-            ArtifactKind::SandboxDir,
-            1.0,
-        );
-
-        // 5. Stow-Style Symlink Graph: Find any symlinks in ~/.local/bin, /usr/local/bin pointing to this app
+        // 4. Stow-Style Symlink Graph: Find any symlinks in ~/.local/bin pointing to this app
         if let Some(ref exec_path) = app_clone.exec_path {
-            let pointing_symlinks = crate::scanner::symlink_graph::find_symlinks_pointing_to_app(exec_path);
-            for symlink in pointing_symlinks {
-                check_and_add_candidate(
-                    &mut candidates,
-                    &mut seen_paths,
-                    &app_clone,
-                    symlink,
-                    ArtifactKind::Binary,
-                    1.0,
-                );
-            }
-        }
+            if !is_shared_system_binary(exec_path) {
+                let pointing_symlinks = crate::scanner::symlink_graph::find_symlinks_pointing_to_app(exec_path);
+                for symlink in pointing_symlinks {
+                    check_and_add_candidate(
+                        &mut candidates,
+                        &mut seen_paths,
+                        &app_clone,
+                        symlink,
+                        ArtifactKind::Binary,
+                        1.0,
+                    );
+                }
 
-        // 5. Binary Executable Path
-        if let Some(ref bin) = app_clone.exec_path {
-            check_and_add_candidate(
-                &mut candidates,
-                &mut seen_paths,
-                &app_clone,
-                bin.clone(),
-                ArtifactKind::Binary,
-                1.0,
-            );
+                // 5. Binary Executable Path (if not a system/shared binary)
+                if !app_clone.install_method.is_native_system() {
+                    check_and_add_candidate(
+                        &mut candidates,
+                        &mut seen_paths,
+                        &app_clone,
+                        exec_path.clone(),
+                        ArtifactKind::Binary,
+                        1.0,
+                    );
+                }
+            }
         }
 
         // 6. Desktop File Path
@@ -250,6 +315,33 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
     })
     .await
     .unwrap_or_default()
+}
+
+/// Validates if an anchor string is safe and specific enough to search for folder names.
+fn is_valid_anchor(anchor: &str) -> bool {
+    let a = anchor.trim().to_lowercase();
+    if a.len() <= 2 {
+        return false;
+    }
+    !FORBIDDEN_ANCHORS.contains(&a.as_str())
+}
+
+/// Returns true if a path is a shared system binary or interpreter that should never be deleted.
+fn is_shared_system_binary(path: &Path) -> bool {
+    let path_str = path.to_string_lossy();
+    if path_str == "/usr/bin/flatpak"
+        || path_str == "/usr/bin/snap"
+        || path_str == "/usr/bin/bash"
+        || path_str == "/bin/bash"
+        || path_str == "/bin/sh"
+        || path_str == "/usr/bin/sh"
+        || path_str == "/usr/bin/env"
+        || path_str.starts_with("/usr/bin/python")
+        || path_str.starts_with("/usr/bin/perl")
+    {
+        return true;
+    }
+    false
 }
 
 fn check_and_add_candidate(
