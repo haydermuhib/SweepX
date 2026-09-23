@@ -38,5 +38,6 @@ regex = "1.10"
 freedesktop-desktop-entry = "0.7"
 open = "5.3"
 tempfile = "3.10"
+indicatif = "0.17"
 
 [dev-dependencies]

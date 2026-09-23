@@ -15,7 +15,7 @@ use crate::scanner::{
 };
 use chrono::Utc;
 use eframe::egui::{self, Align, Color32, Layout, RichText, Stroke};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use tokio::runtime::Runtime;
 
@@ -57,6 +57,8 @@ pub struct SweepXApp {
     sort_field: SortField,
     sort_direction: SortDirection,
     show_system_packages: bool,
+    selected_app_ids: HashSet<String>,
+    focus_search: bool,
 
     // Modal states
     inspecting_app: Option<Application>,
@@ -100,6 +102,8 @@ impl SweepXApp {
             sort_field: SortField::Size,
             sort_direction: SortDirection::Descending,
             show_system_packages: false,
+            selected_app_ids: HashSet::new(),
+            focus_search: false,
             inspecting_app: None,
             inspecting_residuals: Vec::new(),
             show_inspector: false,
@@ -270,6 +274,30 @@ impl eframe::App for SweepXApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_async_messages();
 
+        // Keyboard Shortcuts
+        if ctx.input(|i| (i.modifiers.command && i.key_pressed(egui::Key::F)) || (!self.show_inspector && !self.show_clean_modal && i.key_pressed(egui::Key::Slash))) {
+            self.focus_search = true;
+            self.active_tab = ActiveTab::Dashboard;
+        }
+        if ctx.input(|i| (i.modifiers.command && i.key_pressed(egui::Key::R)) || i.key_pressed(egui::Key::F5)) {
+            self.trigger_refresh();
+            self.trigger_sweep_scan();
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.show_inspector = false;
+            self.show_clean_modal = false;
+            self.selected_app_ids.clear();
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Num1) && !i.modifiers.command) {
+            self.active_tab = ActiveTab::Dashboard;
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Num2) && !i.modifiers.command) {
+            self.active_tab = ActiveTab::Optimizer;
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Num3) && !i.modifiers.command) {
+            self.active_tab = ActiveTab::History;
+        }
+
         if self.is_scanning || self.is_updating_app {
             ctx.request_repaint();
         }
@@ -352,6 +380,12 @@ impl eframe::App for SweepXApp {
                 ui.label(RichText::new("⚡ SweepX").size(20.0_f32).strong().color(Theme::PRIMARY));
                 ui.label(RichText::new("Linux App Tracker & Deep Purge").size(13.0_f32).color(Theme::TEXT_MUTED));
 
+                if self.is_scanning {
+                    ui.add_space(12.0_f32);
+                    ui.spinner();
+                    ui.label(RichText::new("Scanning...").color(Theme::ACCENT_CYAN).size(12.0_f32));
+                }
+
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if ui
                         .add(egui::Button::new(
@@ -416,6 +450,8 @@ impl eframe::App for SweepXApp {
                         &mut self.sort_field,
                         &mut self.sort_direction,
                         &mut self.show_system_packages,
+                        &mut self.selected_app_ids,
+                        &mut self.focus_search,
                         self.is_scanning,
                         self.scan_status.as_deref(),
                         &mut on_inspect,

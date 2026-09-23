@@ -1,6 +1,7 @@
 use crate::models::{format_size, Application, InstallMethod};
 use crate::ui::theme::Theme;
 use egui::{Color32, RichText, ScrollArea, Stroke, Ui};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiCategoryFilter {
@@ -37,6 +38,8 @@ impl DashboardView {
         sort_field: &mut SortField,
         sort_direction: &mut SortDirection,
         show_system_packages: &mut bool,
+        selected_ids: &mut HashSet<String>,
+        focus_search: &mut bool,
         is_scanning: bool,
         scan_status: Option<&str>,
         on_inspect: &mut Option<Application>,
@@ -45,7 +48,7 @@ impl DashboardView {
         Self::render_metrics_header(ui, apps, *show_system_packages);
         ui.add_space(10.0_f32);
 
-        // Live Scanning Progress Banner
+        // Live Scanning Progress Banner with animated glowing spinner
         if is_scanning {
             egui::Frame::none()
                 .fill(Theme::BG_DARK)
@@ -74,11 +77,14 @@ impl DashboardView {
         // 1. Search Bar & Filter Chips
         ui.horizontal(|ui| {
             ui.label(RichText::new("🔍").size(15.0_f32));
-            ui.add(
-                egui::TextEdit::singleline(search_query)
-                    .hint_text("Search apps by name, ID, or binary...")
-                    .desired_width(240.0_f32),
-            );
+            let search_edit = egui::TextEdit::singleline(search_query)
+                .hint_text("Search apps by name, ID, or binary... (Ctrl+F)")
+                .desired_width(260.0_f32);
+            let response = ui.add(search_edit);
+            if *focus_search {
+                response.request_focus();
+                *focus_search = false;
+            }
 
             ui.add_space(10.0_f32);
             ui.label(RichText::new("Filter:").strong().color(Theme::TEXT_MUTED));
@@ -100,25 +106,26 @@ impl DashboardView {
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.checkbox(show_system_packages, "Show System Libraries");
+                ui.checkbox(show_system_packages, RichText::new("Show System Libraries").size(12.0_f32));
             });
         });
 
-        ui.add_space(10.0_f32);
+        ui.add_space(6.0_f32);
 
-        // 2. Sorting Toolbar
+        // 2. Sort Controls Row
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Sort by:").strong().color(Theme::TEXT_MUTED));
+            ui.label(RichText::new("Sort by:").size(12.0_f32).color(Theme::TEXT_MUTED));
+            ui.add_space(4.0_f32);
 
             let sort_options = [
-                (SortField::Size, SortDirection::Descending, "Size (Largest First)"),
-                (SortField::Size, SortDirection::Ascending, "Size (Smallest First)"),
-                (SortField::Name, SortDirection::Ascending, "Name (A → Z)"),
-                (SortField::Name, SortDirection::Descending, "Name (Z → A)"),
-                (SortField::Origin, SortDirection::Ascending, "Origin / Packaging Tier"),
+                ("Size (Largest First)", SortField::Size, SortDirection::Descending),
+                ("Size (Smallest First)", SortField::Size, SortDirection::Ascending),
+                ("Name (A → Z)", SortField::Name, SortDirection::Ascending),
+                ("Name (Z → A)", SortField::Name, SortDirection::Descending),
+                ("Origin / Packaging Tier", SortField::Origin, SortDirection::Ascending),
             ];
 
-            for (field, dir, label) in sort_options {
+            for (label, field, dir) in sort_options {
                 let is_active = *sort_field == field && *sort_direction == dir;
                 if Self::render_sort_button(ui, label, is_active) {
                     *sort_field = field;
@@ -127,159 +134,217 @@ impl DashboardView {
             }
         });
 
-        ui.add_space(10.0_f32);
-        ui.separator();
         ui.add_space(8.0_f32);
 
-        // 3. Filter & Sort Application Records
-        let query_lower = search_query.to_lowercase();
-        let mut filtered_apps: Vec<&Application> = apps
+        // 3. Selection Calculation Banner (if 1 or more apps are selected)
+        if !selected_ids.is_empty() {
+            let selected_apps: Vec<&Application> = apps.iter().filter(|a| selected_ids.contains(&a.id)).collect();
+            let selected_count = selected_apps.len();
+            let selected_size: u64 = selected_apps.iter().map(|a| a.total_size_bytes).sum();
+
+            egui::Frame::none()
+                .fill(Theme::PRIMARY_MUTED)
+                .inner_margin(8.0_f32)
+                .rounding(6.0_f32)
+                .stroke(Stroke::new(1.0_f32, Theme::PRIMARY))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new("📦").size(14.0_f32));
+                        ui.label(
+                            RichText::new(format!(
+                                "Selected: {} application{}  |  Combined Storage Footprint: {}",
+                                selected_count,
+                                if selected_count == 1 { "" } else { "s" },
+                                format_size(selected_size)
+                            ))
+                            .color(Color32::WHITE)
+                            .strong(),
+                        );
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui
+                                .button(RichText::new("✕ Clear Selection").color(Theme::TEXT_PRIMARY).size(11.0_f32))
+                                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                .clicked()
+                            {
+                                selected_ids.clear();
+                            }
+                        });
+                    });
+                });
+            ui.add_space(8.0_f32);
+        }
+
+        // 4. Filter and Sort Applications
+        let mut visible_apps: Vec<Application> = apps
             .iter()
             .filter(|app| {
                 if !*show_system_packages && app.is_system {
                     return false;
                 }
 
-                let matches_cat = match selected_filter {
+                match selected_filter {
                     UiCategoryFilter::All => true,
                     UiCategoryFilter::Native => app.install_method.is_native_system(),
                     UiCategoryFilter::Flatpak => app.install_method == InstallMethod::Flatpak,
                     UiCategoryFilter::Snap => app.install_method == InstallMethod::Snap,
                     UiCategoryFilter::AppImage => app.install_method == InstallMethod::AppImage,
-                    UiCategoryFilter::Manual => {
-                        app.install_method == InstallMethod::ManualOpt
-                            || app.install_method == InstallMethod::CustomDesktop
-                    }
-                };
-
-                let matches_search = query_lower.is_empty()
-                    || app.name.to_lowercase().contains(&query_lower)
-                    || app.display_name.to_lowercase().contains(&query_lower)
-                    || app.id.to_lowercase().contains(&query_lower);
-
-                matches_cat && matches_search
+                    UiCategoryFilter::Manual => app.install_method == InstallMethod::ManualOpt,
+                }
             })
+            .filter(|app| {
+                if search_query.trim().is_empty() {
+                    return true;
+                }
+                let q = search_query.to_lowercase();
+                app.name.to_lowercase().contains(&q)
+                    || app.display_name.to_lowercase().contains(&q)
+                    || app.id.to_lowercase().contains(&q)
+                    || app
+                        .exec_path
+                        .as_ref()
+                        .map_or(false, |p| p.to_string_lossy().to_lowercase().contains(&q))
+            })
+            .cloned()
             .collect();
 
-        // Sort records
-        filtered_apps.sort_by(|a, b| {
-            let ord = match sort_field {
-                SortField::Name => a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase()),
-                SortField::Size => a.total_size_bytes.cmp(&b.total_size_bytes),
-                SortField::Origin => a.install_method.badge_label().cmp(b.install_method.badge_label()),
-                SortField::Version => a.version.cmp(&b.version),
-            };
-
-            match sort_direction {
-                SortDirection::Ascending => ord,
-                SortDirection::Descending => ord.reverse(),
+        match sort_field {
+            SortField::Name => {
+                visible_apps.sort_by(|a, b| match sort_direction {
+                    SortDirection::Ascending => a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase()),
+                    SortDirection::Descending => b.display_name.to_lowercase().cmp(&a.display_name.to_lowercase()),
+                });
             }
-        });
+            SortField::Size => {
+                visible_apps.sort_by(|a, b| match sort_direction {
+                    SortDirection::Ascending => a.total_size_bytes.cmp(&b.total_size_bytes),
+                    SortDirection::Descending => b.total_size_bytes.cmp(&a.total_size_bytes),
+                });
+            }
+            SortField::Origin => {
+                visible_apps.sort_by(|a, b| match sort_direction {
+                    SortDirection::Ascending => a.install_method.badge_label().cmp(b.install_method.badge_label()),
+                    SortDirection::Descending => b.install_method.badge_label().cmp(a.install_method.badge_label()),
+                });
+            }
+            SortField::Version => {
+                visible_apps.sort_by(|a, b| match sort_direction {
+                    SortDirection::Ascending => a.version.cmp(&b.version),
+                    SortDirection::Descending => b.version.cmp(&a.version),
+                });
+            }
+        }
 
-        // 4. Interactive Table Header with Click-to-Sort
+        // 5. Table Header
         egui::Frame::none()
-            .fill(Theme::BG_CARD)
+            .fill(Theme::BG_DARK)
             .inner_margin(8.0_f32)
-            .rounding(6.0_f32)
-            .stroke(Stroke::new(1.0_f32, Theme::BORDER))
+            .rounding(4.0_f32)
             .show(ui, |ui| {
-                ui.columns(5, |cols| {
-                    if Self::table_header_btn(&mut cols[0], "Application", *sort_field == SortField::Name, *sort_direction) {
+                ui.columns(6, |cols| {
+                    cols[0].set_width(32.0_f32);
+                    let all_visible_selected = !visible_apps.is_empty() && visible_apps.iter().all(|a| selected_ids.contains(&a.id));
+                    let mut select_all_state = all_visible_selected;
+                    if cols[0].checkbox(&mut select_all_state, "").changed() {
+                        if select_all_state {
+                            for a in &visible_apps {
+                                selected_ids.insert(a.id.clone());
+                            }
+                        } else {
+                            for a in &visible_apps {
+                                selected_ids.remove(&a.id);
+                            }
+                        }
+                    }
+
+                    cols[1].set_width(220.0_f32);
+                    if Self::table_header_btn(&mut cols[1], "Application", *sort_field == SortField::Name, *sort_direction) {
                         Self::toggle_sort(sort_field, sort_direction, SortField::Name);
                     }
-                    if Self::table_header_btn(&mut cols[1], "Origin", *sort_field == SortField::Origin, *sort_direction) {
+
+                    cols[2].set_width(90.0_f32);
+                    if Self::table_header_btn(&mut cols[2], "Origin", *sort_field == SortField::Origin, *sort_direction) {
                         Self::toggle_sort(sort_field, sort_direction, SortField::Origin);
                     }
-                    if Self::table_header_btn(&mut cols[2], "Version", *sort_field == SortField::Version, *sort_direction) {
+
+                    cols[3].set_width(120.0_f32);
+                    if Self::table_header_btn(&mut cols[3], "Version", *sort_field == SortField::Version, *sort_direction) {
                         Self::toggle_sort(sort_field, sort_direction, SortField::Version);
                     }
-                    if Self::table_header_btn(&mut cols[3], "Disk Size", *sort_field == SortField::Size, *sort_direction) {
+
+                    cols[4].set_width(100.0_f32);
+                    if Self::table_header_btn(&mut cols[4], "Disk Size", *sort_field == SortField::Size, *sort_direction) {
                         Self::toggle_sort(sort_field, sort_direction, SortField::Size);
                     }
-                    cols[4].label(RichText::new("Actions").strong().color(Theme::TEXT_MUTED));
+
+                    cols[5].label(RichText::new("Actions").strong().color(Theme::TEXT_MUTED));
                 });
             });
 
         ui.add_space(4.0_f32);
 
-        // 5. Table Rows
-        ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
-            if filtered_apps.is_empty() {
+        // 6. Application Rows
+        ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            if visible_apps.is_empty() {
+                ui.add_space(32.0_f32);
                 ui.vertical_centered(|ui| {
-                    ui.add_space(40.0_f32);
-                    ui.label(
-                        RichText::new("No applications found matching the selected criteria.")
-                            .color(Theme::TEXT_MUTED)
-                            .size(15.0_f32),
-                    );
+                    ui.label(RichText::new("No matching applications found.").size(14.0_f32).color(Theme::TEXT_MUTED));
                 });
                 return;
             }
 
-            for app in filtered_apps {
+            for app in &visible_apps {
+                let is_checked = selected_ids.contains(&app.id);
+                let row_bg = if is_checked {
+                    Theme::PRIMARY_MUTED
+                } else {
+                    Theme::BG_CARD
+                };
+
                 egui::Frame::none()
-                    .fill(Theme::BG_CARD)
-                    .inner_margin(10.0_f32)
+                    .fill(row_bg)
+                    .inner_margin(8.0_f32)
                     .rounding(6.0_f32)
-                    .stroke(Stroke::new(1.0_f32, Theme::BORDER))
+                    .stroke(Stroke::new(1.0_f32, if is_checked { Theme::PRIMARY } else { Theme::BORDER }))
                     .show(ui, |ui| {
-                        ui.columns(5, |cols| {
-                            // Column 1: Application Name & ID
+                        ui.columns(6, |cols| {
+                            // Column 0: Selection Checkbox
+                            cols[0].set_width(32.0_f32);
                             cols[0].vertical(|ui| {
-                                ui.label(
-                                    RichText::new(&app.display_name)
-                                        .strong()
-                                        .size(14.0_f32)
-                                        .color(Theme::TEXT_PRIMARY),
-                                );
-                                ui.label(
-                                    RichText::new(&app.id)
-                                        .size(11.0_f32)
-                                        .color(Theme::TEXT_MUTED),
-                                );
+                                let mut checked = is_checked;
+                                if ui.checkbox(&mut checked, "").changed() {
+                                    if checked {
+                                        selected_ids.insert(app.id.clone());
+                                    } else {
+                                        selected_ids.remove(&app.id);
+                                    }
+                                }
                             });
 
-                            // Column 2: Packaging Origin Badge
+                            // Column 1: Name & ID
+                            cols[1].set_width(220.0_f32);
                             cols[1].vertical(|ui| {
-                                let (badge_color, text_color) = match app.install_method {
-                                    InstallMethod::Flatpak => {
-                                        if app.is_system {
-                                            (Color32::from_rgb(59, 130, 246), Color32::WHITE)
-                                        } else {
-                                            (Color32::from_rgb(37, 99, 235), Color32::WHITE)
-                                        }
-                                    }
-                                    InstallMethod::Snap => {
-                                        if app.is_system {
-                                            (Color32::from_rgb(146, 64, 14), Color32::WHITE)
-                                        } else {
-                                            (Color32::from_rgb(217, 119, 6), Color32::WHITE)
-                                        }
-                                    }
-                                    InstallMethod::NativeApt | InstallMethod::NativeDnf | InstallMethod::NativePacman => {
-                                        if app.is_system {
-                                            (Color32::from_rgb(100, 116, 139), Color32::WHITE)
-                                        } else {
-                                            (Color32::from_rgb(16, 185, 129), Color32::WHITE)
-                                        }
-                                    }
-                                    InstallMethod::AppImage => (Color32::from_rgb(147, 51, 234), Color32::WHITE),
-                                    _ => (Color32::from_rgb(75, 85, 99), Color32::WHITE),
-                                };
+                                ui.label(RichText::new(&app.display_name).strong().size(13.0_f32));
+                                ui.label(RichText::new(&app.id).size(11.0_f32).color(Theme::TEXT_MUTED));
+                            });
 
-                                let label_text = if app.is_system {
-                                    if app.install_method == InstallMethod::Snap {
-                                        "Snap (Runtime)".to_string()
-                                    } else {
-                                        format!("{} (System)", app.install_method.badge_label())
-                                    }
-                                } else {
-                                    app.install_method.badge_label().to_string()
+                            // Column 2: Origin Badge
+                            cols[2].set_width(90.0_f32);
+                            cols[2].vertical(|ui| {
+                                let (badge_bg, text_color, label_text) = match app.install_method {
+                                    InstallMethod::NativeApt => (Color32::from_rgb(30, 58, 43), Theme::ACCENT_SUCCESS, "APT"),
+                                    InstallMethod::NativeDnf => (Color32::from_rgb(18, 53, 60), Theme::ACCENT_CYAN, "DNF"),
+                                    InstallMethod::NativePacman => (Color32::from_rgb(45, 30, 60), Color32::from_rgb(216, 180, 254), "Pacman"),
+                                    InstallMethod::Flatpak => (Color32::from_rgb(15, 45, 82), Color32::from_rgb(147, 197, 253), "Flatpak"),
+                                    InstallMethod::Snap => (Color32::from_rgb(60, 35, 20), Color32::from_rgb(253, 186, 116), "Snap"),
+                                    InstallMethod::AppImage => (Color32::from_rgb(50, 45, 20), Color32::from_rgb(254, 240, 138), "AppImage"),
+                                    InstallMethod::ManualOpt => (Color32::from_rgb(40, 40, 45), Theme::TEXT_SECONDARY, "Manual (/opt)"),
+                                    InstallMethod::CustomDesktop => (Color32::from_rgb(35, 35, 40), Theme::TEXT_MUTED, "Desktop Entry"),
                                 };
 
                                 egui::Frame::none()
-                                    .fill(badge_color)
-                                    .inner_margin(egui::Margin::symmetric(6.0_f32, 2.0_f32))
+                                    .fill(badge_bg)
+                                    .inner_margin(egui::vec2(6.0_f32, 2.0_f32))
                                     .rounding(4.0_f32)
                                     .show(ui, |ui| {
                                         ui.label(
@@ -292,7 +357,8 @@ impl DashboardView {
                             });
 
                             // Column 3: Version
-                            cols[2].vertical(|ui| {
+                            cols[3].set_width(120.0_f32);
+                            cols[3].vertical(|ui| {
                                 ui.label(
                                     RichText::new(app.version.as_deref().unwrap_or("-"))
                                         .size(12.0_f32)
@@ -301,7 +367,8 @@ impl DashboardView {
                             });
 
                             // Column 4: Size
-                            cols[3].vertical(|ui| {
+                            cols[4].set_width(100.0_f32);
+                            cols[4].vertical(|ui| {
                                 ui.label(
                                     RichText::new(app.formatted_size())
                                         .size(13.0_f32)
@@ -311,7 +378,7 @@ impl DashboardView {
                             });
 
                             // Column 5: Actions
-                            cols[4].horizontal(|ui| {
+                            cols[5].horizontal(|ui| {
                                 if ui
                                     .button(RichText::new("🔍 Inspect").size(12.0_f32))
                                     .on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -415,7 +482,7 @@ impl DashboardView {
         } else {
             *field = target_field;
             *dir = match target_field {
-                SortField::Size => SortDirection::Descending, // Default largest first
+                SortField::Size => SortDirection::Descending,
                 _ => SortDirection::Ascending,
             };
         }

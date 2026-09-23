@@ -10,6 +10,22 @@ use crate::db::{AuditLogEntry, Database};
 use crate::models::{format_size, Application, InstallMethod};
 use crate::scanner::scan_all_applications;
 use chrono::Utc;
+use indicatif::{ProgressBar, ProgressStyle};
+use std::time::Duration;
+
+/// Creates an animated high-contrast terminal spinner with a steady tick.
+fn create_spinner(msg: &str) -> ProgressBar {
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+            .template("{spinner:.cyan.bold} {msg}")
+            .unwrap_or_else(|_| ProgressStyle::default_spinner()),
+    );
+    pb.set_message(msg.to_string());
+    pb.enable_steady_tick(Duration::from_millis(80));
+    pb
+}
 
 /// Executes the selected CLI command asynchronously.
 pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Error>> {
@@ -22,8 +38,9 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
             all_system,
             json,
         } => {
-            println!("🔍 Scanning host applications across all packaging tiers...");
+            let sp = create_spinner("Scanning host applications across all packaging tiers...");
             let apps = scan_all_applications().await;
+            sp.finish_and_clear();
 
             let filtered: Vec<Application> = apps
                 .into_iter()
@@ -50,12 +67,13 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
                 return Ok(());
             }
 
-            println!("\n📦 Discovered Applications ({} found):", filtered.len());
+            println!("✓ Discovered {} applications", filtered.len());
+            println!("{:-<88}", "");
             println!(
                 "{:<35} {:<15} {:<15} {:<12}",
                 "APPLICATION", "ORIGIN", "VERSION", "SIZE"
             );
-            println!("{:-<80}", "");
+            println!("{:-<88}", "");
 
             for app in &filtered {
                 let ver = app.version.as_deref().unwrap_or("-");
@@ -69,7 +87,7 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
             }
         }
         Commands::Inspect { app_id, json } => {
-            println!("🔍 Inspecting application '{}'...", app_id);
+            let sp = create_spinner(&format!("Searching for application '{}'...", app_id));
             let apps = scan_all_applications().await;
             let target = apps
                 .iter()
@@ -78,12 +96,14 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
             let app = match target {
                 Some(a) => a,
                 None => {
-                    eprintln!("❌ Application '{}' not found.", app_id);
+                    sp.finish_with_message(format!("✗ Application '{}' not found.", app_id));
                     return Ok(());
                 }
             };
 
+            sp.set_message(format!("Crawling residual paths and sandboxes for '{}'...", app.display_name));
             let residuals = discover_residuals_for_app(app).await;
+            sp.finish_and_clear();
 
             if json {
                 let report = serde_json::json!({
@@ -94,24 +114,30 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
                 return Ok(());
             }
 
-            println!("\n📋 Application Details: {}", app.display_name);
-            println!("  • ID: {}", app.id);
-            println!("  • Packaging: {}", app.install_method.badge_label());
-            println!("  • Version: {}", app.version.as_deref().unwrap_or("N/A"));
-            println!("  • Total Size: {}", app.formatted_size());
+            let package_size = app.total_size_bytes;
+            let residuals_size: u64 = residuals.iter().map(|r| r.size_bytes).sum();
+            let total_combined = package_size + residuals_size;
+
+            println!("✓ Inspection complete for: {}", app.display_name);
+            println!("  • ID:               {}", app.id);
+            println!("  • Packaging:        {}", app.install_method.badge_label());
+            println!("  • Version:          {}", app.version.as_deref().unwrap_or("N/A"));
+            println!("  • Package Payload:  {}", format_size(package_size));
+            println!("  • User Files Size:  {}", format_size(residuals_size));
+            println!("  • Total Footprint:  {}", format_size(total_combined));
             if let Some(ref exec) = app.exec_path {
-                println!("  • Binary: {}", exec.display());
+                println!("  • Binary:           {}", exec.display());
             }
             if let Some(ref desk) = app.desktop_file {
                 println!("  • Desktop Launcher: {}", desk.display());
             }
             if let Some(ref desc) = app.description {
-                println!("  • Description: {}", desc);
+                println!("  • Description:      {}", desc);
             }
 
-            println!("\n📂 Associated Artifacts & Config Files ({} found):", residuals.len());
+            println!("\n📂 Discovered User Artifacts & Caches ({} found):", residuals.len());
             if residuals.is_empty() {
-                println!("  (No user configs or caches found)");
+                println!("  (No additional user configs or caches found)");
             } else {
                 for r in &residuals {
                     println!(
@@ -128,7 +154,7 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
             dry_run,
             permanent,
         } => {
-            println!("🔍 Locating '{}' for deep uninstallation...", app_id);
+            let sp = create_spinner(&format!("Locating '{}' for deep uninstallation...", app_id));
             let apps = scan_all_applications().await;
             let target = apps
                 .iter()
@@ -137,16 +163,18 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
             let app = match target {
                 Some(a) => a,
                 None => {
-                    eprintln!("❌ Application '{}' not found.", app_id);
+                    sp.finish_with_message(format!("✗ Application '{}' not found.", app_id));
                     return Ok(());
                 }
             };
 
+            sp.set_message(format!("Discovering residual files for '{}'...", app.display_name));
             let residuals = discover_residuals_for_app(app).await;
+            sp.finish_and_clear();
 
-            println!("\n⚠️ Deep Cleaning Plan for '{}':", app.display_name);
-            println!("  • Package Tier: {}", app.install_method.badge_label());
-            println!("  • Deletion Mode: {}", if permanent { "Permanent Delete" } else { "FreeDesktop Trash" });
+            println!("📋 Deep Cleaning Plan for '{}':", app.display_name);
+            println!("  • Package Tier:   {}", app.install_method.badge_label());
+            println!("  • Deletion Mode:  {}", if permanent { "Permanent Unlink" } else { "Freedesktop Trash" });
 
             if residuals.is_empty() {
                 println!("  • Residual Items: None");
@@ -158,11 +186,16 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
             }
 
             if dry_run {
-                println!("\n✅ [DRY RUN] No files or packages were modified.");
+                println!("\n✓ [DRY RUN] No files or packages were modified.");
                 return Ok(());
             }
 
-            println!("\n🚀 Executing purge...");
+            let purge_sp = create_spinner(if permanent {
+                "Permanently unlinking application files..."
+            } else {
+                "Moving application files to system Trash..."
+            });
+
             let _pkg_res = execute_purge_package(app).await;
             let mode = if permanent {
                 DeletionMode::Permanent
@@ -171,6 +204,7 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
             };
 
             let report = execute_purge_residuals(&residuals, mode).await;
+            purge_sp.finish_and_clear();
 
             if let Ok(db) = Database::open_default() {
                 let audit = AuditLogEntry {
@@ -197,11 +231,12 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
             }
 
             println!(
-                "🎉 Purge completed! Freed ~{}.",
+                "✓ Purge completed for '{}'! Freed ~{}.",
+                app.display_name,
                 format_size(report.freed_bytes + app.total_size_bytes)
             );
             if !report.errors.is_empty() {
-                println!("⚠️ Notice: {} items encountered errors:", report.errors.len());
+                println!("⚠️ Notice: {} items encountered notices during cleanup:", report.errors.len());
                 for (p, err) in report.errors {
                     println!("  - {}: {}", p.display(), err);
                 }
@@ -211,12 +246,13 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
             let db = Database::open_default()?;
             let logs = db.get_audit_history()?;
 
-            println!("\n📜 Uninstallation & Purge History ({} entries):", logs.len());
             if logs.is_empty() {
-                println!("  (No uninstallation history recorded yet)");
+                println!("✓ No uninstallation history recorded yet.");
                 return Ok(());
             }
 
+            println!("📜 Uninstallation & Purge History ({} entries):", logs.len());
+            println!("{:-<85}", "");
             println!(
                 "{:<25} {:<30} {:<15} {:<12}",
                 "TIMESTAMP", "APPLICATION", "METHOD", "FREED"
@@ -235,8 +271,9 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
             }
         }
         Commands::Sweep { dry_run, json } => {
-            println!("🔍 Scanning system for obsolete container revisions, caches, and unused runtimes...");
+            let sp = create_spinner("Scanning system for obsolete container revisions, caches, and unused runtimes...");
             let items = scan_all_sweep_items().await;
+            sp.finish_and_clear();
 
             if json {
                 println!("{}", serde_json::to_string_pretty(&items.iter().map(|i| {
@@ -253,12 +290,12 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
             }
 
             if items.is_empty() {
-                println!("✨ System is fully optimized! No obsolete revisions or package caches found.");
+                println!("✓ System is fully optimized. No obsolete revisions or package caches found.");
                 return Ok(());
             }
 
             let total_reclaimable: u64 = items.iter().map(|i| i.reclaimable_bytes).sum();
-            println!("\n🧹 Discovered Reclaimable System Bloat ({} items, ~{}):", items.len(), format_size(total_reclaimable));
+            println!("✓ Discovered Reclaimable System Bloat ({} items, ~{}):", items.len(), format_size(total_reclaimable));
             println!(
                 "{:<38} {:<28} {:<12}",
                 "ITEM", "CATEGORY", "RECLAIMABLE"
@@ -275,21 +312,22 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
             }
 
             if dry_run {
-                println!("\n✅ [DRY RUN] No files, package caches, or snap revisions were modified.");
+                println!("\n✓ [DRY RUN] No files, package caches, or container revisions were modified.");
                 return Ok(());
             }
 
-            println!("\n🚀 Executing system optimization...");
+            let sweep_sp = create_spinner("Executing system optimization routines...");
             let report = execute_system_sweep(&items).await;
+            sweep_sp.finish_and_clear();
 
             println!(
-                "🎉 System sweep completed! Cleaned {} items and reclaimed ~{}.",
+                "✓ System sweep completed! Cleaned {} items and reclaimed ~{}.",
                 report.items_cleaned,
                 format_size(report.freed_bytes)
             );
 
             if !report.errors.is_empty() {
-                println!("⚠️ Notice: {} items encountered errors during cleanup:", report.errors.len());
+                println!("⚠️ Notice: {} items encountered notices during cleanup:", report.errors.len());
                 for err in report.errors {
                     println!("  - {}", err);
                 }
@@ -297,13 +335,14 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
         }
         Commands::Watch { name, command } => {
             if command.is_empty() {
-                eprintln!("❌ No installation command specified.");
+                eprintln!("✗ No installation command specified.");
                 return Ok(());
             }
 
             let full_cmd_str = command.join(" ");
-            println!("📸 Capturing pre-installation filesystem snapshot across system roots...");
+            let snap_sp = create_spinner("Capturing pre-installation filesystem snapshot across system roots...");
             let pre_snapshot = crate::tracker::FilesystemSnapshot::capture();
+            snap_sp.finish_and_clear();
 
             println!("🚀 Executing installation command: '{}'...\n", full_cmd_str);
             let program = &command[0];
@@ -315,22 +354,22 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
                 .await?;
 
             if !status.success() {
-                eprintln!("\n❌ Installation command failed with exit code: {:?}", status.code());
+                eprintln!("\n✗ Installation command failed with exit code: {:?}", status.code());
                 return Ok(());
             }
 
-            println!("\n📸 Capturing post-installation filesystem snapshot...");
+            let post_sp = create_spinner("Capturing post-installation filesystem snapshot and computing diff...");
             let post_snapshot = crate::tracker::FilesystemSnapshot::capture();
 
             let app_id = name.to_lowercase().replace(' ', "-");
             let manifest = pre_snapshot.diff(&post_snapshot, &app_id, &name, &full_cmd_str);
 
-            println!("💾 Recording exact installation manifest in SweepX database...");
             if let Ok(db) = Database::open_default() {
                 let _ = db.save_install_manifest(&manifest);
             }
+            post_sp.finish_and_clear();
 
-            println!("\n🛡️ Install Watch Complete for '{}'!", name);
+            println!("✓ Install Watch Complete for '{}'!", name);
             println!("  • Created Files ({}):", manifest.created_files.len());
             for f in &manifest.created_files {
                 println!("    + {}", f.display());
@@ -342,17 +381,18 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
                 }
             }
             println!("  • Total Footprint: {}", format_size(manifest.total_size_bytes));
-            println!("\n✨ This application can now be 100% cleanly purged anytime via 'sweepx purge {}'!", app_id);
+            println!("✓ Application manifest saved. Cleanly purgeable anytime via 'sweepx purge {}'.", app_id);
         }
         Commands::Update { check } => {
-            println!("🔍 Checking for SweepX updates on GitHub (haydermuhib/SweepX)...");
+            let sp = create_spinner("Checking for updates on GitHub (haydermuhib/SweepX)...");
             match crate::updater::check_for_updates().await {
                 Ok(update_info) => {
+                    sp.finish_and_clear();
                     println!("  • Current version: v{}", update_info.current_version);
                     println!("  • Latest version:  v{}", update_info.latest_version);
 
                     if !update_info.has_update {
-                        println!("\n✨ SweepX is already up to date! (v{})", update_info.current_version);
+                        println!("✓ SweepX is up to date (v{}).", update_info.current_version);
                         return Ok(());
                     }
 
@@ -371,27 +411,26 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
                     }
 
                     if let Some(ref download_url) = update_info.download_url {
-                        println!("\n📥 Downloading and installing latest release binary...");
+                        let dl_sp = create_spinner("Downloading and atomically replacing executable binary...");
                         match crate::updater::perform_self_update(download_url).await {
                             Ok(updated_path) => {
-                                println!(
-                                    "🎉 Successfully updated SweepX to v{} at {}!",
+                                dl_sp.finish_with_message(format!(
+                                    "✓ Successfully updated SweepX to v{} at {}!",
                                     update_info.latest_version,
                                     updated_path.display()
-                                );
+                                ));
                             }
                             Err(e) => {
-                                eprintln!("❌ Update installation failed: {}", e);
-                                eprintln!("💡 Fallback: Run the 1-line installer: curl -fsSL https://raw.githubusercontent.com/haydermuhib/SweepX/main/install.sh | bash");
+                                dl_sp.finish_with_message(format!("✗ Update installation failed: {}", e));
+                                eprintln!("💡 Fallback: Run curl -fsSL https://raw.githubusercontent.com/haydermuhib/SweepX/main/install.sh | bash");
                             }
                         }
                     } else {
                         println!("\n⚠️ No matching precompiled binary asset found for this architecture in release.");
-                        println!("💡 You can update via curl installer: curl -fsSL https://raw.githubusercontent.com/haydermuhib/SweepX/main/install.sh | bash");
                     }
                 }
                 Err(e) => {
-                    eprintln!("⚠️ Failed to check for updates: {}", e);
+                    sp.finish_with_message(format!("✗ Failed to check for updates: {}", e));
                 }
             }
         }
