@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 #[derive(Parser, Debug)]
 #[command(name = "sweepx")]
 #[command(author = "SweepX Contributors")]
-#[command(version = "0.1.0")]
+#[command(version)]
 #[command(about = "Unified Linux Application Tracker & Deep Uninstaller", long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
