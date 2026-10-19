@@ -75,6 +75,7 @@ impl InspectorModal {
                                         crate::models::InstallMethod::AppImage => "AppImage Binary",
                                         crate::models::InstallMethod::ManualOpt => "Installed Application Files (/opt)",
                                         crate::models::InstallMethod::CustomDesktop => "Desktop Application",
+                                        crate::models::InstallMethod::Bottles => "Bottle Wine Prefix & Application Payload",
                                     };
                                     ui.label(RichText::new(payload_label).strong().color(Theme::ACCENT_CYAN));
                                     if let Some(ref bin) = app.exec_path {

@@ -61,12 +61,15 @@ pub async fn execute_purge_package(app: &Application) -> Result<String, String> 
         InstallMethod::NativePacman => {
             run_elevated_command("pacman", &["-Rns", "--noconfirm", &app.id]).await
         }
-        InstallMethod::ManualOpt | InstallMethod::AppImage | InstallMethod::CustomDesktop => {
-            // For manual / AppImage, package removal is handled through artifact/directory deletion
+        InstallMethod::ManualOpt
+        | InstallMethod::AppImage
+        | InstallMethod::CustomDesktop
+        | InstallMethod::Bottles => {
+            // For manual / AppImage / Bottles, package removal is handled through artifact/directory deletion
             if let Ok(db) = crate::db::Database::open_default() {
                 let _ = db.delete_install_manifest(&app.id);
             }
-            Ok("Manual installation ready for artifact cleanup".to_string())
+            Ok("Installation ready for artifact cleanup".to_string())
         }
     }
 }

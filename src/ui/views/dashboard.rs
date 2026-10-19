@@ -340,6 +340,7 @@ impl DashboardView {
                                     InstallMethod::AppImage => (Color32::from_rgb(50, 45, 20), Color32::from_rgb(254, 240, 138), "AppImage"),
                                     InstallMethod::ManualOpt => (Color32::from_rgb(40, 40, 45), Theme::TEXT_SECONDARY, "Manual (/opt)"),
                                     InstallMethod::CustomDesktop => (Color32::from_rgb(35, 35, 40), Theme::TEXT_MUTED, "Desktop Entry"),
+                                    InstallMethod::Bottles => (Color32::from_rgb(58, 28, 58), Color32::from_rgb(244, 114, 182), "Bottles"),
                                 };
 
                                 egui::Frame::none()

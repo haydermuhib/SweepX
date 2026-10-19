@@ -10,18 +10,23 @@ pub struct AppImageInfo {
 
 /// Checks if an AppImage already has an associated .desktop entry in ~/.local/share/applications.
 pub fn is_appimage_integrated(appimage_path: &Path) -> Option<PathBuf> {
-    if let Some(home) = dirs::home_dir() {
-        let apps_dir = home.join(".local/share/applications");
-        if apps_dir.exists() {
-            if let Ok(entries) = std::fs::read_dir(apps_dir) {
-                let path_str = appimage_path.to_string_lossy();
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().map_or(false, |ext| ext == "desktop") {
-                        if let Ok(content) = std::fs::read_to_string(&path) {
-                            if content.contains(&*path_str) {
-                                return Some(path);
-                            }
+    let apps_dir = if let Ok(custom) = std::env::var("SWEEPX_TEST_APPS_DIR") {
+        PathBuf::from(custom)
+    } else if let Some(home) = dirs::home_dir() {
+        home.join(".local/share/applications")
+    } else {
+        return None;
+    };
+
+    if apps_dir.exists() {
+        if let Ok(entries) = std::fs::read_dir(apps_dir) {
+            let path_str = appimage_path.to_string_lossy();
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().map_or(false, |ext| ext == "desktop") {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        if content.contains(&*path_str) {
+                            return Some(path);
                         }
                     }
                 }
@@ -62,8 +67,13 @@ pub fn extract_appimage_icon(appimage_path: &Path, clean_id: &str) -> Option<Str
 
 /// Integrates an AppImage by creating a desktop launcher entry in ~/.local/share/applications.
 pub fn integrate_appimage(appimage_path: &Path, display_name: &str) -> Result<PathBuf, String> {
-    let home = dirs::home_dir().ok_or_else(|| "Failed to resolve user home directory".to_string())?;
-    let applications_dir = home.join(".local/share/applications");
+    let applications_dir = if let Ok(custom) = std::env::var("SWEEPX_TEST_APPS_DIR") {
+        PathBuf::from(custom)
+    } else {
+        let home = dirs::home_dir().ok_or_else(|| "Failed to resolve user home directory".to_string())?;
+        home.join(".local/share/applications")
+    };
+
     std::fs::create_dir_all(&applications_dir)
         .map_err(|e| format!("Failed to create applications directory: {}", e))?;
 

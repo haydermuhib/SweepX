@@ -171,7 +171,63 @@ pub async fn perform_self_update(download_url: &str) -> Result<PathBuf, String> 
         let _ = std::fs::remove_file(&temp_download);
     }
 
+    // Refresh application icon across standard directories, update desktop entry, and invalidate icon caches
+    let _ = update_installed_assets();
+
     Ok(current_exe)
+}
+
+/// Refreshes the application SVG icons and desktop entry in user directories.
+pub fn update_installed_assets() -> Result<(), String> {
+    const SWEEPX_ICON_SVG: &str = include_str!("../../assets/icons/sweepx.svg");
+
+    if let Some(home) = dirs::home_dir() {
+        let icon_targets = [
+            home.join(".local/share/icons/hicolor/scalable/apps/sweepx.svg"),
+            home.join(".local/share/icons/sweepx.svg"),
+            home.join(".local/share/pixmaps/sweepx.svg"),
+        ];
+
+        for path in &icon_targets {
+            if let Some(parent) = path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(path, SWEEPX_ICON_SVG);
+        }
+
+        let apps_dir = home.join(".local/share/applications");
+        let desktop_path = apps_dir.join("sweepx.desktop");
+        let icon_path = home.join(".local/share/icons/hicolor/scalable/apps/sweepx.svg");
+        let bin_path = home.join(".local/bin/sweepx");
+
+        if desktop_path.exists() {
+            let desktop_content = format!(
+                "[Desktop Entry]\n\
+                 Type=Application\n\
+                 Name=SweepX\n\
+                 Comment=Unified Linux Application Tracker & Deep Uninstaller\n\
+                 Exec={} gui\n\
+                 Icon={}\n\
+                 Categories=System;Utility;Settings;\n\
+                 Terminal=false\n\
+                 StartupNotify=true\n",
+                bin_path.display(),
+                icon_path.display()
+            );
+            let _ = std::fs::write(&desktop_path, desktop_content);
+        }
+
+        // Trigger cache updates if utilities are present
+        let _ = std::process::Command::new("gtk-update-icon-cache")
+            .args(["-f", "-t", home.join(".local/share/icons/hicolor").to_str().unwrap_or("")])
+            .output();
+
+        let _ = std::process::Command::new("update-desktop-database")
+            .arg(apps_dir.to_str().unwrap_or(""))
+            .output();
+    }
+
+    Ok(())
 }
 
 /// Simple semver comparison helper (e.g. "0.2.0" > "0.1.0").

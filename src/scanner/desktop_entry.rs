@@ -1,4 +1,5 @@
 use crate::models::{AppArtifact, Application, ArtifactKind, InstallMethod};
+use super::bottles::probe_bottle_app;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -137,8 +138,8 @@ pub fn parse_desktop_entry_content(content: &str, file_path: &Path) -> Option<Ap
     app.desktop_file = Some(file_path.to_path_buf());
 
     // Resolve executable binary
-    if let Some(raw_exec) = exec {
-        let clean_binary = extract_binary_from_exec(&raw_exec);
+    if let Some(ref raw_exec) = exec {
+        let clean_binary = extract_binary_from_exec(raw_exec);
         let resolved_path = resolve_binary_path(&clean_binary);
         app.exec_path = resolved_path.clone();
 
@@ -152,6 +153,34 @@ pub fn parse_desktop_entry_content(content: &str, file_path: &Path) -> Option<Ap
                     true,
                 ));
             }
+        }
+    }
+
+    // Detect Bottles wine prefix & payload if applicable
+    if let Some(bottle_info) = probe_bottle_app(exec.as_deref(), app.exec_path.as_deref()) {
+        app.install_method = InstallMethod::Bottles;
+        if bottle_info.payload_size_bytes > 0 {
+            app.total_size_bytes += bottle_info.payload_size_bytes;
+            if let Some(p_dir) = bottle_info.program_dir {
+                app.artifacts.push(AppArtifact::new(
+                    ArtifactKind::AppDir,
+                    p_dir,
+                    bottle_info.payload_size_bytes,
+                    true,
+                ));
+            } else if let Some(b_dir) = bottle_info.bottle_dir {
+                app.artifacts.push(AppArtifact::new(
+                    ArtifactKind::SandboxDir,
+                    b_dir,
+                    bottle_info.payload_size_bytes,
+                    true,
+                ));
+            }
+        }
+        if let Some(existing) = app.description.take() {
+            app.description = Some(format!("{} (Bottle: {})", existing, bottle_info.bottle_name));
+        } else {
+            app.description = Some(format!("Windows application running in Bottle '{}'", bottle_info.bottle_name));
         }
     }
 

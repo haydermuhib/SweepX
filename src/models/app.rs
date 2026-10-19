@@ -14,6 +14,7 @@ pub enum InstallMethod {
     AppImage,
     ManualOpt,
     CustomDesktop,
+    Bottles,
 }
 
 impl InstallMethod {
@@ -27,6 +28,7 @@ impl InstallMethod {
             InstallMethod::AppImage => "AppImage",
             InstallMethod::ManualOpt => "Manual (/opt)",
             InstallMethod::CustomDesktop => "Desktop Entry",
+            InstallMethod::Bottles => "Bottles",
         }
     }
 
@@ -40,7 +42,7 @@ impl InstallMethod {
     pub fn is_container(&self) -> bool {
         matches!(
             self,
-            InstallMethod::Flatpak | InstallMethod::Snap | InstallMethod::AppImage
+            InstallMethod::Flatpak | InstallMethod::Snap | InstallMethod::AppImage | InstallMethod::Bottles
         )
     }
 }

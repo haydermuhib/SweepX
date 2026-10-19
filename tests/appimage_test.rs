@@ -4,6 +4,11 @@ use tempfile::tempdir;
 #[test]
 fn test_appimage_integration_desktop_file_generation() {
     let temp_dir = tempdir().unwrap();
+    let apps_dir = temp_dir.path().join("applications");
+    unsafe {
+        std::env::set_var("SWEEPX_TEST_APPS_DIR", &apps_dir);
+    }
+
     let appimage_path = temp_dir.path().join("Obsidian.AppImage");
     std::fs::File::create(&appimage_path).unwrap();
 

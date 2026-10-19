@@ -99,6 +99,60 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
             return candidates;
         }
 
+        if app_clone.install_method == InstallMethod::Bottles {
+            // Desktop file launcher
+            if let Some(ref desk) = app_clone.desktop_file {
+                check_and_add_candidate(
+                    &mut candidates,
+                    &mut seen_paths,
+                    &app_clone,
+                    desk.clone(),
+                    ArtifactKind::DesktopEntry,
+                    1.0,
+                );
+            }
+
+            // Executable binary / wrapper script (e.g. ~/.local/bin/<app>)
+            if let Some(ref bin) = app_clone.exec_path {
+                check_and_add_candidate(
+                    &mut candidates,
+                    &mut seen_paths,
+                    &app_clone,
+                    bin.clone(),
+                    ArtifactKind::Binary,
+                    1.0,
+                );
+            }
+
+            // Any artifacts discovered during scan (e.g. drive_c/Program Files/.../App)
+            for artifact in &app_clone.artifacts {
+                check_and_add_candidate(
+                    &mut candidates,
+                    &mut seen_paths,
+                    &app_clone,
+                    artifact.path.clone(),
+                    artifact.kind,
+                    1.0,
+                );
+            }
+
+            // Standard application icons in user icon directories
+            for anchor in [&app_clone.id, &app_clone.name] {
+                for ext in ["svg", "png"] {
+                    let icon_hicolor = home_dir.join(format!(".local/share/icons/hicolor/scalable/apps/{}.{}", anchor, ext));
+                    check_and_add_candidate(&mut candidates, &mut seen_paths, &app_clone, icon_hicolor, ArtifactKind::Icon, 1.0);
+
+                    let icon_top = home_dir.join(format!(".local/share/icons/{}.{}", anchor, ext));
+                    check_and_add_candidate(&mut candidates, &mut seen_paths, &app_clone, icon_top, ArtifactKind::Icon, 1.0);
+
+                    let icon_pixmap = home_dir.join(format!(".local/share/pixmaps/{}.{}", anchor, ext));
+                    check_and_add_candidate(&mut candidates, &mut seen_paths, &app_clone, icon_pixmap, ArtifactKind::Icon, 1.0);
+                }
+            }
+
+            return candidates;
+        }
+
         // ==========================================
         // 2. NATIVE & MANUAL APPLICATION DISCOVERY
         // ==========================================
@@ -210,13 +264,13 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
             // User application icons
             for ext in ["svg", "png"] {
                 let icon_hicolor = home_dir.join(format!(".local/share/icons/hicolor/scalable/apps/{}.{}", anchor, ext));
-                check_and_add_candidate(&mut candidates, &mut seen_paths, &app_clone, icon_hicolor, ArtifactKind::DesktopEntry, 1.0);
+                check_and_add_candidate(&mut candidates, &mut seen_paths, &app_clone, icon_hicolor, ArtifactKind::Icon, 1.0);
                 
                 let icon_top = home_dir.join(format!(".local/share/icons/{}.{}", anchor, ext));
-                check_and_add_candidate(&mut candidates, &mut seen_paths, &app_clone, icon_top, ArtifactKind::DesktopEntry, 1.0);
+                check_and_add_candidate(&mut candidates, &mut seen_paths, &app_clone, icon_top, ArtifactKind::Icon, 1.0);
 
                 let icon_pixmap = home_dir.join(format!(".local/share/pixmaps/{}.{}", anchor, ext));
-                check_and_add_candidate(&mut candidates, &mut seen_paths, &app_clone, icon_pixmap, ArtifactKind::DesktopEntry, 1.0);
+                check_and_add_candidate(&mut candidates, &mut seen_paths, &app_clone, icon_pixmap, ArtifactKind::Icon, 1.0);
             }
         }
 

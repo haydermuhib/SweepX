@@ -14,6 +14,11 @@ fn test_application_creation_and_defaults() {
 
     app.total_size_bytes = 150 * 1024 * 1024; // 150 MB
     assert_eq!(app.formatted_size(), "150.0 MB");
+
+    let bottle_app = Application::new("mathtype", "MathType", InstallMethod::Bottles);
+    assert_eq!(bottle_app.install_method.badge_label(), "Bottles");
+    assert!(bottle_app.install_method.is_container());
+    assert!(!bottle_app.install_method.is_native_system());
 }
 
 #[test]
