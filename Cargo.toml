@@ -10,8 +10,7 @@ homepage = "https://github.com/haydermuhib/SweepX"
 
 [dependencies]
 # GUI Framework
-eframe = { version = "0.28", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
-egui = "0.28"
+iced = { version = "0.14", features = ["tokio", "image", "svg"] }
 
 # Async & Process Management
 tokio = { version = "1.38", features = ["full"] }

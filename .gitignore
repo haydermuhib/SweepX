@@ -5,3 +5,7 @@
 .DS_Store
 .idea/
 .vscode/
+node_modules/
+dist/
+*.tsbuildinfo
+.taste-skill/
