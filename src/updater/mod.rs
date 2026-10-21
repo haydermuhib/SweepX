@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use std::path::PathBuf;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 
 const REPO_OWNER: &str = "haydermuhib";
@@ -7,9 +8,10 @@ const REPO_NAME: &str = "SweepX";
 const GITHUB_API_LATEST: &str = "https://api.github.com/repos/haydermuhib/SweepX/releases/latest";
 
 #[derive(Debug, Clone, Deserialize)]
-struct GithubReleaseAsset {
-    name: String,
-    browser_download_url: String,
+pub struct GithubReleaseAsset {
+    pub name: String,
+    pub size: Option<u64>,
+    pub browser_download_url: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -26,8 +28,35 @@ pub struct UpdateInfo {
     pub latest_version: String,
     pub release_notes: String,
     pub download_url: Option<String>,
+    pub asset_name: Option<String>,
+    pub asset_size: Option<u64>,
     pub html_url: String,
     pub has_update: bool,
+}
+
+/// Selects the optimal release asset, strongly preferring compressed archives (.tar.gz) over raw binaries.
+pub fn select_best_asset<'a>(
+    assets: &'a [GithubReleaseAsset],
+    arch_target: &str,
+) -> Option<&'a GithubReleaseAsset> {
+    // Priority 1: Compressed archive for target architecture (.tar.gz / .tgz)
+    // Priority 2: Generic linux compressed archive (.tar.gz / .tgz)
+    // Priority 3: Architecture-specific uncompressed binary
+    // Priority 4: Generic binary named "sweepx"
+    assets
+        .iter()
+        .find(|a| {
+            a.name.contains(arch_target)
+                && (a.name.ends_with(".tar.gz") || a.name.ends_with(".tgz"))
+        })
+        .or_else(|| {
+            assets.iter().find(|a| {
+                a.name.contains("linux")
+                    && (a.name.ends_with(".tar.gz") || a.name.ends_with(".tgz"))
+            })
+        })
+        .or_else(|| assets.iter().find(|a| a.name.contains(arch_target)))
+        .or_else(|| assets.iter().find(|a| a.name == "sweepx"))
 }
 
 /// Queries GitHub Releases API to check if a newer version of SweepX is available.
@@ -58,6 +87,8 @@ pub async fn check_for_updates() -> Result<UpdateInfo, String> {
             latest_version: current_version,
             release_notes: String::new(),
             download_url: None,
+            asset_name: None,
+            asset_size: None,
             html_url: format!("https://github.com/{}/{}", REPO_OWNER, REPO_NAME),
             has_update: false,
         });
@@ -78,17 +109,20 @@ pub async fn check_for_updates() -> Result<UpdateInfo, String> {
         "unknown"
     };
 
-    let download_url = release
-        .assets
-        .iter()
-        .find(|a| a.name.contains(arch_target) || a.name.contains("linux") || a.name == "sweepx")
-        .map(|a| a.browser_download_url.clone());
+    let chosen_asset = select_best_asset(&release.assets, arch_target);
+
+    let (download_url, asset_name, asset_size) = match chosen_asset {
+        Some(a) => (Some(a.browser_download_url.clone()), Some(a.name.clone()), a.size),
+        None => (None, None, None),
+    };
 
     Ok(UpdateInfo {
         current_version,
         latest_version: clean_tag,
         release_notes: release.body.unwrap_or_default(),
         download_url,
+        asset_name,
+        asset_size,
         html_url: release.html_url,
         has_update,
     })
@@ -96,6 +130,15 @@ pub async fn check_for_updates() -> Result<UpdateInfo, String> {
 
 /// Downloads the latest release binary and atomically replaces the running executable.
 pub async fn perform_self_update(download_url: &str) -> Result<PathBuf, String> {
+    perform_self_update_with_progress(download_url, None, None).await
+}
+
+/// Downloads the latest release binary with real-time stream progress and atomically replaces the running executable.
+pub async fn perform_self_update_with_progress(
+    download_url: &str,
+    _total_bytes: Option<u64>,
+    progress_bar: Option<&indicatif::ProgressBar>,
+) -> Result<PathBuf, String> {
     let current_exe = std::env::current_exe()
         .map_err(|e| format!("Failed to resolve current executable path: {}", e))?;
 
@@ -105,12 +148,63 @@ pub async fn perform_self_update(download_url: &str) -> Result<PathBuf, String> 
 
     let temp_download = parent_dir.join(format!(".sweepx-update-{}", std::process::id()));
 
-    // Download with curl
-    let status = Command::new("curl")
-        .args(["-fsSL", "-o", temp_download.to_str().unwrap(), download_url])
-        .status()
+    // Stream download through curl pipe into temporary file with progress tracking
+    let mut child = Command::new("curl")
+        .args(["-fsSL", download_url])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn curl download: {}", e))?;
+
+    let mut stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "Failed to open curl stdout pipe".to_string())?;
+
+    let mut temp_file = tokio::fs::File::create(&temp_download)
         .await
-        .map_err(|e| format!("Failed to download update binary: {}", e))?;
+        .map_err(|e| format!("Failed to create temporary download file: {}", e))?;
+
+    let mut buffer = [0u8; 65536];
+    let mut downloaded: u64 = 0;
+
+    loop {
+        let bytes_read = stdout
+            .read(&mut buffer)
+            .await
+            .map_err(|e| {
+                let _ = std::fs::remove_file(&temp_download);
+                format!("Error reading download stream: {}", e)
+            })?;
+
+        if bytes_read == 0 {
+            break;
+        }
+
+        temp_file
+            .write_all(&buffer[..bytes_read])
+            .await
+            .map_err(|e| {
+                let _ = std::fs::remove_file(&temp_download);
+                format!("Failed to write downloaded data to disk: {}", e)
+            })?;
+
+        downloaded += bytes_read as u64;
+        if let Some(pb) = progress_bar {
+            pb.set_position(downloaded);
+        }
+    }
+
+    temp_file.flush().await.map_err(|e| {
+        let _ = std::fs::remove_file(&temp_download);
+        format!("Failed to flush temp file: {}", e)
+    })?;
+    drop(temp_file);
+
+    let status = child.wait().await.map_err(|e| {
+        let _ = std::fs::remove_file(&temp_download);
+        format!("Failed waiting for curl download process: {}", e)
+    })?;
 
     if !status.success() {
         let _ = std::fs::remove_file(&temp_download);
@@ -125,7 +219,7 @@ pub async fn perform_self_update(download_url: &str) -> Result<PathBuf, String> 
             .args(["-xzf", temp_download.to_str().unwrap(), "-C", extract_dir.to_str().unwrap()])
             .status()
             .await;
-        
+
         let _ = std::fs::remove_file(&temp_download);
 
         if let Ok(status) = tar_status {

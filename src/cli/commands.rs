@@ -95,4 +95,5 @@ pub enum CategoryFilter {
     Snap,
     Appimage,
     Manual,
+    Bottles,
 }

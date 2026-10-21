@@ -73,16 +73,27 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
         }
 
         if app_clone.install_method == InstallMethod::Snap {
-            // Snap user sandbox is strictly contained in ~/snap/<app.name>
-            let snap_sandbox = home_dir.join("snap").join(&app_clone.name);
-            check_and_add_candidate(
-                &mut candidates,
-                &mut seen_paths,
-                &app_clone,
-                snap_sandbox,
-                ArtifactKind::SandboxDir,
-                1.0,
-            );
+            // Snap user sandbox is contained in ~/snap/<app_id> or ~/snap/<app_name>
+            for anchor in [&app_clone.id, &app_clone.name] {
+                let snap_sandbox = home_dir.join("snap").join(anchor);
+                check_and_add_candidate(
+                    &mut candidates,
+                    &mut seen_paths,
+                    &app_clone,
+                    snap_sandbox,
+                    ArtifactKind::SandboxDir,
+                    1.0,
+                );
+                let snap_sandbox_lower = home_dir.join("snap").join(anchor.to_lowercase().replace(' ', "-"));
+                check_and_add_candidate(
+                    &mut candidates,
+                    &mut seen_paths,
+                    &app_clone,
+                    snap_sandbox_lower,
+                    ArtifactKind::SandboxDir,
+                    1.0,
+                );
+            }
 
             // Desktop file export
             if let Some(ref desk) = app_clone.desktop_file {
@@ -120,18 +131,6 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
                     &app_clone,
                     bin.clone(),
                     ArtifactKind::Binary,
-                    1.0,
-                );
-            }
-
-            // Any artifacts discovered during scan (e.g. drive_c/Program Files/.../App)
-            for artifact in &app_clone.artifacts {
-                check_and_add_candidate(
-                    &mut candidates,
-                    &mut seen_paths,
-                    &app_clone,
-                    artifact.path.clone(),
-                    artifact.kind,
                     1.0,
                 );
             }

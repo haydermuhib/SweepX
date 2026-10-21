@@ -58,6 +58,9 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
                             app.install_method == InstallMethod::ManualOpt
                                 || app.install_method == InstallMethod::CustomDesktop
                         }
+                        CategoryFilter::Bottles => {
+                            matches!(app.install_method, InstallMethod::Bottles { .. })
+                        }
                     }
                 })
                 .collect();
@@ -68,21 +71,22 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
             }
 
             println!("✓ Discovered {} applications", filtered.len());
-            println!("{:-<88}", "");
+            println!("{:-<95}", "");
             println!(
-                "{:<35} {:<15} {:<15} {:<12}",
-                "APPLICATION", "ORIGIN", "VERSION", "SIZE"
+                "{:<35} {:<15} {:<12} {:<14} {:<14}",
+                "APPLICATION", "ORIGIN", "VERSION", "PAYLOAD", "FOOTPRINT"
             );
-            println!("{:-<88}", "");
+            println!("{:-<95}", "");
 
             for app in &filtered {
                 let ver = app.version.as_deref().unwrap_or("-");
                 println!(
-                    "{:<35} {:<15} {:<15} {:<12}",
+                    "{:<35} {:<15} {:<12} {:<14} {:<14}",
                     truncate_str(&app.display_name, 34),
                     app.install_method.badge_label(),
-                    truncate_str(ver, 14),
-                    app.formatted_size()
+                    truncate_str(ver, 11),
+                    app.formatted_size(),
+                    app.formatted_known_footprint()
                 );
             }
         }
@@ -135,7 +139,7 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
                 println!("  • Description:      {}", desc);
             }
 
-            println!("\n📂 Discovered User Artifacts & Caches ({} found):", residuals.len());
+            println!("\nDiscovered User Artifacts & Caches ({} found):", residuals.len());
             if residuals.is_empty() {
                 println!("  (No additional user configs or caches found)");
             } else {
@@ -172,7 +176,7 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
             let residuals = discover_residuals_for_app(app).await;
             sp.finish_and_clear();
 
-            println!("📋 Deep Cleaning Plan for '{}':", app.display_name);
+            println!("Deep Cleaning Plan for '{}':", app.display_name);
             println!("  • Package Tier:   {}", app.install_method.badge_label());
             println!("  • Deletion Mode:  {}", if permanent { "Permanent Unlink" } else { "Freedesktop Trash" });
 
@@ -236,7 +240,7 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
                 format_size(report.freed_bytes + app.total_size_bytes)
             );
             if !report.errors.is_empty() {
-                println!("⚠️ Notice: {} items encountered notices during cleanup:", report.errors.len());
+                println!("! Notice: {} items encountered notices during cleanup:", report.errors.len());
                 for (p, err) in report.errors {
                     println!("  - {}: {}", p.display(), err);
                 }
@@ -251,7 +255,7 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
                 return Ok(());
             }
 
-            println!("📜 Uninstallation & Purge History ({} entries):", logs.len());
+            println!("Uninstallation History ({} entries):", logs.len());
             println!("{:-<85}", "");
             println!(
                 "{:<25} {:<30} {:<15} {:<12}",
@@ -327,7 +331,7 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
             );
 
             if !report.errors.is_empty() {
-                println!("⚠️ Notice: {} items encountered notices during cleanup:", report.errors.len());
+                println!("! Notice: {} items encountered notices during cleanup:", report.errors.len());
                 for err in report.errors {
                     println!("  - {}", err);
                 }
@@ -344,7 +348,7 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
             let pre_snapshot = crate::tracker::FilesystemSnapshot::capture();
             snap_sp.finish_and_clear();
 
-            println!("🚀 Executing installation command: '{}'...\n", full_cmd_str);
+            println!("• Executing installation command: '{}'...\n", full_cmd_str);
             let program = &command[0];
             let args = &command[1..];
 
@@ -388,45 +392,84 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
             match crate::updater::check_for_updates().await {
                 Ok(update_info) => {
                     sp.finish_and_clear();
+                    println!("SweepX Update Status");
+                    println!("{:-<50}", "");
                     println!("  • Current version: v{}", update_info.current_version);
                     println!("  • Latest version:  v{}", update_info.latest_version);
 
                     if !update_info.has_update {
-                        println!("✓ SweepX is up to date (v{}).", update_info.current_version);
+                        println!("\n✓ SweepX is up to date (v{}).", update_info.current_version);
                         return Ok(());
                     }
 
                     println!(
-                        "\n🚀 New update available: v{} → v{}!",
+                        "\n• Update available: v{} -> v{}",
                         update_info.current_version, update_info.latest_version
                     );
-                    if !update_info.release_notes.is_empty() {
-                        println!("\n📋 Release Notes:\n{}", update_info.release_notes.trim());
+                    if let Some(ref name) = update_info.asset_name {
+                        let size_desc = update_info.asset_size.map(format_size).unwrap_or_else(|| "unknown size".to_string());
+                        println!("  • Asset:           {} ({})", name, size_desc);
                     }
-                    println!("🔗 Release URL: {}", update_info.html_url);
+                    if !update_info.release_notes.is_empty() {
+                        println!("\nRelease Notes:\n{}", update_info.release_notes.trim());
+                    }
+                    println!("\nRelease URL: {}", update_info.html_url);
 
                     if check {
-                        println!("\n💡 Run 'sweepx update' to install the latest release automatically.");
+                        println!("\nRun 'sweepx update' to download and install this release.");
                         return Ok(());
                     }
 
                     if let Some(ref download_url) = update_info.download_url {
-                        let dl_sp = create_spinner("Downloading and atomically replacing executable binary...");
-                        match crate::updater::perform_self_update(download_url).await {
+                        let total_bytes = update_info.asset_size;
+                        let pb = match total_bytes {
+                            Some(total) => {
+                                let p = ProgressBar::new(total);
+                                p.set_style(
+                                    ProgressStyle::default_bar()
+                                        .template("{spinner:.cyan} [{elapsed_precise}] [{bar:36.cyan/blue}] {bytes}/{total_bytes} ({bytes_per_sec}, eta {eta})")
+                                        .unwrap_or_else(|_| ProgressStyle::default_bar())
+                                        .progress_chars("=>-"),
+                                );
+                                p.enable_steady_tick(Duration::from_millis(80));
+                                p
+                            }
+                            None => {
+                                let p = ProgressBar::new_spinner();
+                                p.set_style(
+                                    ProgressStyle::default_spinner()
+                                        .template("{spinner:.cyan} [{elapsed_precise}] {bytes} ({bytes_per_sec})")
+                                        .unwrap_or_else(|_| ProgressStyle::default_spinner()),
+                                );
+                                p.enable_steady_tick(Duration::from_millis(80));
+                                p
+                            }
+                        };
+
+                        println!();
+                        match crate::updater::perform_self_update_with_progress(
+                            download_url,
+                            total_bytes,
+                            Some(&pb),
+                        )
+                        .await
+                        {
                             Ok(updated_path) => {
-                                dl_sp.finish_with_message(format!(
-                                    "✓ Successfully updated SweepX to v{} at {}!",
+                                pb.finish_and_clear();
+                                println!(
+                                    "✓ Successfully updated SweepX to v{} at {}",
                                     update_info.latest_version,
                                     updated_path.display()
-                                ));
+                                );
                             }
                             Err(e) => {
-                                dl_sp.finish_with_message(format!("✗ Update installation failed: {}", e));
-                                eprintln!("💡 Fallback: Run curl -fsSL https://raw.githubusercontent.com/haydermuhib/SweepX/main/install.sh | bash");
+                                pb.finish_and_clear();
+                                eprintln!("✗ Update installation failed: {}", e);
+                                eprintln!("Fallback: Run curl -fsSL https://raw.githubusercontent.com/haydermuhib/SweepX/main/install.sh | bash");
                             }
                         }
                     } else {
-                        println!("\n⚠️ No matching precompiled binary asset found for this architecture in release.");
+                        println!("\n! No matching precompiled binary asset found for this architecture in release.");
                     }
                 }
                 Err(e) => {
