@@ -47,6 +47,29 @@ pub fn describe_snap_runtime(name: &str) -> Option<String> {
     }
 }
 
+/// Reads the application version directly from the mounted snap squashfs metadata (`meta/snap.yaml`).
+pub fn read_snap_version_from_meta(snap_name: &str) -> Option<String> {
+    let candidate_paths = [
+        PathBuf::from(format!("/var/lib/snapd/snap/{}/current/meta/snap.yaml", snap_name)),
+        PathBuf::from(format!("/snap/{}/current/meta/snap.yaml", snap_name)),
+    ];
+
+    for path in &candidate_paths {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if let Some(rest) = trimmed.strip_prefix("version:") {
+                    let ver = rest.trim().trim_matches('\'').trim_matches('"');
+                    if !ver.is_empty() {
+                        return Some(ver.to_string());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Finds all `.snap` squashfs files in `/var/lib/snapd/snaps/` belonging to this snap.
 pub fn find_snap_package_files(snap_name: &str) -> Vec<(PathBuf, u64)> {
     let mut files = Vec::new();
@@ -97,7 +120,6 @@ pub fn parse_snap_list_output(stdout: &str) -> Vec<Application> {
             let snap_data_path = home.join("snap").join(name);
             if snap_data_path.exists() {
                 let size = crate::scanner::manual::calculate_dir_size(&snap_data_path);
-                app.total_size_bytes += size;
                 app.artifacts.push(AppArtifact::new(
                     ArtifactKind::SandboxDir,
                     snap_data_path,
@@ -129,10 +151,19 @@ pub async fn scan_snaps() -> Vec<Application> {
         return Vec::new();
     }
 
-    let output = Command::new("snap").arg("list").output().await;
+    // If the snapd daemon socket is not present, skip trying to connect
+    if !Path::new("/run/snapd.socket").exists() {
+        return Vec::new();
+    }
+
+    let output = tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        Command::new("snap").arg("list").output(),
+    )
+    .await;
 
     match output {
-        Ok(out) if out.status.success() => {
+        Ok(Ok(out)) if out.status.success() => {
             let stdout = String::from_utf8_lossy(&out.stdout);
             parse_snap_list_output(&stdout)
         }

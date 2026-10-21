@@ -58,3 +58,39 @@ fn test_format_size_helper() {
     assert_eq!(format_size(15 * 1024 * 1024), "15.0 MB");
     assert_eq!(format_size(3 * 1024 * 1024 * 1024 + 500 * 1024 * 1024), "3.49 GB");
 }
+
+#[test]
+fn test_application_known_footprint() {
+    let mut app = Application::new("org.gimp.GIMP", "GIMP", InstallMethod::Flatpak);
+    app.total_size_bytes = 100 * 1024 * 1024; // 100 MB package payload
+
+    // Add binary artifact (should not be double counted since it is already in total_size_bytes)
+    app.artifacts.push(AppArtifact::new(
+        ArtifactKind::Binary,
+        PathBuf::from("/usr/bin/gimp"),
+        100 * 1024 * 1024,
+        true,
+    ));
+
+    // Add sandbox directory artifact (e.g. ~/.var/app/org.gimp.GIMP)
+    app.artifacts.push(AppArtifact::new(
+        ArtifactKind::SandboxDir,
+        PathBuf::from("/home/user/.var/app/org.gimp.GIMP"),
+        250 * 1024 * 1024, // 250 MB
+        true,
+    ));
+
+    // Add desktop launcher artifact
+    app.artifacts.push(AppArtifact::new(
+        ArtifactKind::DesktopEntry,
+        PathBuf::from("/usr/share/applications/gimp.desktop"),
+        2048,
+        true,
+    ));
+
+    // Known footprint = 100 MB (payload) + 250 MB (sandbox) + 2048 (desktop)
+    let expected = (100 + 250) * 1024 * 1024 + 2048;
+    assert_eq!(app.known_footprint_bytes(), expected);
+    assert_eq!(app.formatted_size(), "100.0 MB");
+    assert_eq!(app.formatted_known_footprint(), "350.0 MB");
+}

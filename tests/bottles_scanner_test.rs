@@ -32,6 +32,11 @@ fn test_parse_bottle_invocation_patterns() {
     let res5 = parse_bottle_invocation(cmd5);
     assert_eq!(res5, Some(("Utilities".to_string(), "MathType".to_string())));
 
+    // Real Flatpak Bottles bash wrapper script (WINEPREFIX pattern)
+    let bash_script = "#!/usr/bin/env bash\nexec flatpak run --command=bash com.usebottles.bottles -c '\n  WINEPREFIX=/var/data/bottles/bottles/MathType /app/bin/wine \"C:\\Program Files (x86)\\MathType\\MathType.exe\" \"$@\"\n' \"$@\"\n";
+    let res_bash = parse_bottle_invocation(bash_script);
+    assert_eq!(res_bash, Some(("MathType".to_string(), "MathType".to_string())));
+
     // Non-bottles invocation
     let cmd_none = "/usr/bin/google-chrome --enable-features=UseOzonePlatform";
     assert_eq!(parse_bottle_invocation(cmd_none), None);
@@ -82,6 +87,33 @@ fn test_desktop_entry_with_bottles_wrapper() {
     assert_eq!(app.install_method.badge_label(), "Bottles");
     assert_eq!(app.name, "MathType 6.0");
     assert!(app.description.unwrap().contains("MathType"));
+}
+
+#[test]
+fn test_real_bottles_bash_wrapper_integration() {
+    let temp = tempdir().unwrap();
+    let wrapper_path = temp.path().join("mathtype");
+    let wrapper_content = "#!/usr/bin/env bash\nexec flatpak run --command=bash com.usebottles.bottles -c '\n  WINEPREFIX=/var/data/bottles/bottles/MathType /app/bin/wine \"C:\\Program Files (x86)\\MathType\\MathType.exe\" \"$@\"\n' \"$@\"\n";
+    std::fs::write(&wrapper_path, wrapper_content).unwrap();
+
+    let desktop_file = temp.path().join("mathtype.desktop");
+    let desktop_content = format!(
+        "[Desktop Entry]\n\
+         Name=MathType 6.0\n\
+         Comment=Equation Editor\n\
+         Exec={}\n\
+         Terminal=false\n\
+         Type=Application\n\
+         Categories=Office;Education;Science;Math;\n\
+         Icon=accessories-calculator\n",
+        wrapper_path.display()
+    );
+    std::fs::write(&desktop_file, &desktop_content).unwrap();
+
+    let app = parse_desktop_entry_content(&desktop_content, &desktop_file).expect("Failed to parse desktop entry");
+    assert_eq!(app.install_method, InstallMethod::Bottles);
+    assert_eq!(app.install_method.badge_label(), "Bottles");
+    assert_eq!(app.name, "MathType 6.0");
 }
 
 #[test]

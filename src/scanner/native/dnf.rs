@@ -16,13 +16,16 @@ impl DnfManager {
 
     /// Fetches the set of packages explicitly requested/installed by the user.
     pub async fn get_user_installed_set() -> HashSet<String> {
-        let output = Command::new("dnf")
-            .args(["repoquery", "--userinstalled", "--qf", "%{name}\n"])
-            .output()
-            .await;
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            Command::new("dnf")
+                .args(["repoquery", "--userinstalled", "--qf", "%{name}\n"])
+                .output(),
+        )
+        .await;
 
         let mut user_installed = HashSet::new();
-        if let Ok(out) = output {
+        if let Ok(Ok(out)) = output {
             if out.status.success() {
                 let stdout = String::from_utf8_lossy(&out.stdout);
                 for line in stdout.lines() {

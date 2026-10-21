@@ -34,7 +34,6 @@ pub fn parse_flatpak_list_output(stdout: &str) -> Vec<Application> {
             let sandbox_path = home.join(".var/app").join(app_id);
             if sandbox_path.exists() {
                 let sandbox_size = crate::scanner::manual::calculate_dir_size(&sandbox_path);
-                app.total_size_bytes += sandbox_size;
                 app.artifacts.push(AppArtifact::new(
                     ArtifactKind::SandboxDir,
                     sandbox_path,
@@ -51,27 +50,40 @@ pub fn parse_flatpak_list_output(stdout: &str) -> Vec<Application> {
 }
 
 pub fn parse_flatpak_size_string(s: &str) -> u64 {
-    let s = s.trim();
-    if s.is_empty() {
+    let clean = s.replace('\u{00a0}', " ").trim().to_lowercase();
+    if clean.is_empty() {
         return 0;
     }
 
-    let parts: Vec<&str> = s.split_whitespace().collect();
-    if parts.is_empty() {
-        return 0;
+    // Split numeric prefix and unit suffix
+    let mut num_str = String::new();
+    let mut unit_str = String::new();
+    let mut found_unit = false;
+
+    for ch in clean.chars() {
+        if !found_unit && (ch.is_ascii_digit() || ch == '.' || ch == ',') {
+            if ch == ',' {
+                num_str.push('.');
+            } else {
+                num_str.push(ch);
+            }
+        } else if ch.is_alphabetic() {
+            found_unit = true;
+            unit_str.push(ch);
+        }
     }
 
-    let val: f64 = parts[0].parse().unwrap_or(0.0);
-    let unit = parts.get(1).map(|u| u.to_lowercase()).unwrap_or_default();
+    let val: f64 = num_str.parse().unwrap_or(0.0);
+    let unit = unit_str.trim();
 
-    if unit.starts_with('g') {
+    if unit.starts_with('t') {
+        (val * 1024.0 * 1024.0 * 1024.0 * 1024.0) as u64
+    } else if unit.starts_with('g') {
         (val * 1024.0 * 1024.0 * 1024.0) as u64
     } else if unit.starts_with('m') {
         (val * 1024.0 * 1024.0) as u64
     } else if unit.starts_with('k') {
         (val * 1024.0) as u64
-    } else if unit.starts_with('b') {
-        val as u64
     } else {
         val as u64
     }
@@ -82,17 +94,20 @@ pub async fn scan_flatpaks() -> Vec<Application> {
         return Vec::new();
     }
 
-    let output = Command::new("flatpak")
-        .args([
-            "list",
-            "--app",
-            "--columns=name,application,version,size,installation,options",
-        ])
-        .output()
-        .await;
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(4),
+        Command::new("flatpak")
+            .args([
+                "list",
+                "--app",
+                "--columns=name,application,version,size,installation,options",
+            ])
+            .output(),
+    )
+    .await;
 
     match output {
-        Ok(out) if out.status.success() => {
+        Ok(Ok(out)) if out.status.success() => {
             let stdout = String::from_utf8_lossy(&out.stdout);
             parse_flatpak_list_output(&stdout)
         }

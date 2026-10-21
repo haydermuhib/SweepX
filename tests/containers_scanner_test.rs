@@ -30,6 +30,18 @@ fn test_parse_flatpak_size_string() {
         parse_flatpak_size_string("1.5 GB"),
         (1.5 * 1024.0 * 1024.0 * 1024.0) as u64
     );
+    // Non-breaking space \u{00a0} (standard in flatpak CLI)
+    assert_eq!(
+        parse_flatpak_size_string("28.8\u{00a0}MB"),
+        (28.8 * 1024.0 * 1024.0) as u64
+    );
+    // Comma decimal separator
+    assert_eq!(
+        parse_flatpak_size_string("1,5 GB"),
+        (1.5 * 1024.0 * 1024.0 * 1024.0) as u64
+    );
+    // No space between number and unit
+    assert_eq!(parse_flatpak_size_string("250MB"), 250 * 1024 * 1024);
 }
 
 #[test]

@@ -96,6 +96,30 @@ impl Application {
     pub fn formatted_size(&self) -> String {
         format_size(self.total_size_bytes)
     }
+
+    pub fn total_footprint_bytes(&self, residuals: &[super::residual::ResidualCandidate]) -> u64 {
+        let residuals_sum: u64 = residuals.iter().map(|r| r.size_bytes).sum();
+        self.total_size_bytes + residuals_sum
+    }
+
+    pub fn formatted_total_footprint(&self, residuals: &[super::residual::ResidualCandidate]) -> String {
+        format_size(self.total_footprint_bytes(residuals))
+    }
+
+    /// Calculates known on-disk footprint combining the package payload with known discovered artifacts (e.g. desktop entry, sandboxes, appdirs).
+    pub fn known_footprint_bytes(&self) -> u64 {
+        let non_binary_artifacts: u64 = self
+            .artifacts
+            .iter()
+            .filter(|a| a.kind != super::artifact::ArtifactKind::Binary)
+            .map(|a| a.size_bytes)
+            .sum();
+        self.total_size_bytes + non_binary_artifacts
+    }
+
+    pub fn formatted_known_footprint(&self) -> String {
+        format_size(self.known_footprint_bytes())
+    }
 }
 
 /// Utility to format bytes into human-readable strings (KB, MB, GB).

@@ -25,6 +25,10 @@ impl ScanStageBatch {
             Self::Native(_) => "Native Packages",
         }
     }
+
+    pub fn apply_to(self, app_map: &mut HashMap<String, Application>) {
+        apply_stage_batch(app_map, self);
+    }
 }
 
 pub fn apply_stage_batch(app_map: &mut HashMap<String, Application>, batch: ScanStageBatch) {
@@ -112,10 +116,18 @@ pub fn apply_stage_batch(app_map: &mut HashMap<String, Application>, batch: Scan
                 } else {
                     app_map.keys().find(|k| {
                         let existing = &app_map[*k];
+                        let bin_name = existing.exec_path.as_ref()
+                            .and_then(|p| p.file_name())
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("");
+                        let existing_short_id = existing.id.rsplit('.').next().unwrap_or(&existing.id);
+
                         existing.id == app.id
-                            || (existing.exec_path.is_some() && existing.exec_path == app.exec_path)
+                            || (!bin_name.is_empty() && bin_name.eq_ignore_ascii_case(&app.id))
+                            || existing_short_id.eq_ignore_ascii_case(&app.id)
                             || is_name_fuzzy_match(&existing.name, &app.name)
-                            || is_name_fuzzy_match(&existing.id, &app.id)
+                            || is_name_fuzzy_match(existing_short_id, &app.id)
+                            || (!bin_name.is_empty() && is_name_fuzzy_match(bin_name, &app.id))
                     }).cloned()
                 };
 
@@ -126,13 +138,15 @@ pub fn apply_stage_batch(app_map: &mut HashMap<String, Application>, batch: Scan
                     existing.version = app.version.or(existing.version);
                     existing.total_size_bytes = app.total_size_bytes.max(existing.total_size_bytes);
                     existing.description = existing.description.or(app.description);
-                    existing.is_system = app.is_system;
+                    existing.is_system = false;
                     if existing.exec_path.is_none() {
                         existing.exec_path = app.exec_path;
                     }
                     app_map.insert(app.id.clone(), existing);
-                } else if !app.is_system {
-                    app_map.insert(app.id.clone(), app);
+                } else {
+                    let mut sys_app = app;
+                    sys_app.is_system = true;
+                    app_map.insert(sys_app.id.clone(), sys_app);
                 }
             }
         }

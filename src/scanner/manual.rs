@@ -138,7 +138,6 @@ pub async fn scan_manual_installations() -> Vec<Application> {
                                 let config_path = home.join(".config").join(&clean_name);
                                 if config_path.exists() {
                                     let c_size = calculate_dir_size(&config_path);
-                                    app.total_size_bytes += c_size;
                                     app.artifacts.push(AppArtifact::new(
                                         ArtifactKind::ConfigDir,
                                         config_path,
@@ -150,7 +149,6 @@ pub async fn scan_manual_installations() -> Vec<Application> {
                                 let data_path = home.join(".local/share").join(&clean_name);
                                 if data_path.exists() {
                                     let d_size = calculate_dir_size(&data_path);
-                                    app.total_size_bytes += d_size;
                                     app.artifacts.push(AppArtifact::new(
                                         ArtifactKind::DataDir,
                                         data_path,
@@ -162,7 +160,6 @@ pub async fn scan_manual_installations() -> Vec<Application> {
                                 let cache_path = home.join(".cache").join(&clean_name);
                                 if cache_path.exists() {
                                     let ca_size = calculate_dir_size(&cache_path);
-                                    app.total_size_bytes += ca_size;
                                     app.artifacts.push(AppArtifact::new(
                                         ArtifactKind::CacheDir,
                                         cache_path,
@@ -187,6 +184,13 @@ pub async fn scan_manual_installations() -> Vec<Application> {
 
 /// Checks if a file or directory is owned by RPM, DPKG, or Pacman.
 pub fn is_path_owned_by_package_manager(path: &Path) -> bool {
+    // System package managers never own files inside user home directories
+    if let Some(home) = dirs::home_dir() {
+        if path.starts_with(&home) {
+            return false;
+        }
+    }
+
     let path_str = path.to_string_lossy();
 
     // 1. Check RPM (Fedora, RHEL, CentOS, openSUSE)
@@ -305,7 +309,7 @@ fn is_appimage_binary(path: &Path) -> bool {
     false
 }
 
-/// Recursively calculates the byte size of a directory with depth limit.
+/// Recursively calculates the complete byte size of a directory.
 pub fn calculate_dir_size(path: &Path) -> u64 {
     if !path.exists() {
         return 0;
@@ -314,7 +318,6 @@ pub fn calculate_dir_size(path: &Path) -> u64 {
         return std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
     }
     WalkDir::new(path)
-        .max_depth(5)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter_map(|e| e.metadata().ok())

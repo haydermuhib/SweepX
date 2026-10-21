@@ -65,17 +65,58 @@ fn tokenize_command(cmd: &str) -> Vec<String> {
 ///
 /// Handles patterns like:
 /// - `bottles-cli run -b "BottleName" -p "ProgramName"`
-/// - `bottles-cli run -b BottleName -p ProgramName`
-/// - `flatpak run --command=bottles-cli com.usebottles.bottles run -b "Bottle" -p "App"`
+/// - `WINEPREFIX=/var/data/bottles/bottles/MathType /app/bin/wine "C:\Program Files\..."`
+/// - `flatpak run --command=bash com.usebottles.bottles -c 'WINEPREFIX=...'`
 /// - `bottles -b "BottleName" -e "..."`
 pub fn parse_bottle_invocation(content: &str) -> Option<(String, String)> {
-    if !content.contains("bottles") && !content.contains("com.usebottles.bottles") {
+    if !content.contains("bottles") && !content.contains("com.usebottles.bottles") && !content.contains("WINEPREFIX") {
         return None;
     }
 
     let mut bottle_name = None;
     let mut program_name = None;
 
+    // 1. Check for WINEPREFIX=... pattern common in flatpak bash wrapper scripts:
+    // e.g. WINEPREFIX=/var/data/bottles/bottles/MathType /app/bin/wine "C:\Program Files (x86)\MathType\MathType.exe"
+    if let Some(pos) = content.find("WINEPREFIX=") {
+        let remainder = &content[pos + "WINEPREFIX=".len()..];
+        let prefix_token = remainder
+            .split(|c: char| c.is_whitespace() || c == '\'' || c == '"')
+            .find(|s| !s.is_empty())
+            .unwrap_or("");
+
+        if !prefix_token.is_empty() {
+            let b_name = prefix_token
+                .trim_end_matches('/')
+                .split('/')
+                .last()
+                .unwrap_or(prefix_token);
+            if !b_name.is_empty() {
+                bottle_name = Some(b_name.to_string());
+            }
+        }
+    }
+
+    // 2. Check for .exe executable path if program_name is not yet known
+    if let Some(exe_pos) = content.to_lowercase().find(".exe") {
+        let before = &content[..exe_pos];
+        let start = before
+            .rfind(|c: char| c == '"' || c == '\'' || c.is_whitespace())
+            .map(|idx| idx + 1)
+            .unwrap_or(0);
+        let exe_token = &content[start..exe_pos + 4];
+        let clean_exe = clean_arg_token(exe_token);
+        let filename = clean_exe.split(['/', '\\']).last().unwrap_or(&clean_exe);
+        let stem = Path::new(filename)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(filename);
+        if !stem.is_empty() {
+            program_name = Some(stem.to_string());
+        }
+    }
+
+    // 3. Fallback to token-based flags (-b, --bottle, -p, --program, -e, --executable)
     let tokens = tokenize_command(content);
     let mut i = 0;
     while i < tokens.len() {

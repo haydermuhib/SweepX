@@ -36,6 +36,8 @@ pub fn parse_desktop_entry_content(content: &str, file_path: &Path) -> Option<Ap
     let mut entry_type = None;
 
     let mut snap_instance_name = None;
+    let mut desktop_version = None;
+    let mut explicit_app_version = None;
 
     for line in content.lines() {
         let trimmed = line.trim();
@@ -78,6 +80,12 @@ pub fn parse_desktop_entry_content(content: &str, file_path: &Path) -> Option<Ap
                 }
                 "X-SnapInstanceName" => {
                     snap_instance_name = Some(val.to_string());
+                }
+                "Version" if desktop_version.is_none() => {
+                    desktop_version = Some(val.to_string());
+                }
+                "X-SnapAppVersion" | "X-AppVersion" => {
+                    explicit_app_version = Some(val.to_string());
                 }
                 "NoDisplay" => {
                     no_display = val.eq_ignore_ascii_case("true");
@@ -137,6 +145,25 @@ pub fn parse_desktop_entry_content(content: &str, file_path: &Path) -> Option<Ap
     app.icon = icon;
     app.desktop_file = Some(file_path.to_path_buf());
 
+    // Resolve version: check Snap metadata first, then explicit version, then desktop file version
+    if app.install_method == InstallMethod::Snap {
+        if let Some(snap_v) = crate::scanner::snap::read_snap_version_from_meta(&app.id) {
+            app.version = Some(snap_v);
+        } else if let Some(ev) = explicit_app_version {
+            app.version = Some(ev);
+        } else if let Some(ref dv) = desktop_version {
+            if !matches!(dv.as_str(), "1.0" | "1.1" | "1.2" | "1.3" | "1.4" | "1.5") {
+                app.version = Some(dv.clone());
+            }
+        }
+    } else if let Some(ev) = explicit_app_version {
+        app.version = Some(ev);
+    } else if let Some(ref dv) = desktop_version {
+        if !matches!(dv.as_str(), "1.0" | "1.1" | "1.2" | "1.3" | "1.4" | "1.5") {
+            app.version = Some(dv.clone());
+        }
+    }
+
     // Resolve executable binary
     if let Some(ref raw_exec) = exec {
         let clean_binary = extract_binary_from_exec(raw_exec);
@@ -145,13 +172,36 @@ pub fn parse_desktop_entry_content(content: &str, file_path: &Path) -> Option<Ap
 
         if let Some(bin_path) = resolved_path {
             if let Ok(meta) = std::fs::metadata(&bin_path) {
-                app.total_size_bytes += meta.len();
                 app.artifacts.push(AppArtifact::new(
                     ArtifactKind::Binary,
-                    bin_path,
+                    bin_path.clone(),
                     meta.len(),
                     true,
                 ));
+            }
+
+            if app.install_method == InstallMethod::Snap {
+                let snap_files = crate::scanner::snap::find_snap_package_files(&app.id);
+                let snap_size: u64 = snap_files.iter().map(|(_, sz)| *sz).sum();
+                if snap_size > 0 {
+                    app.total_size_bytes = snap_size;
+                    for (pkg_path, pkg_size) in snap_files {
+                        app.artifacts.push(AppArtifact::new(
+                            ArtifactKind::Binary,
+                            pkg_path,
+                            pkg_size,
+                            false,
+                        ));
+                    }
+                } else if let Ok(meta) = std::fs::metadata(&bin_path) {
+                    app.total_size_bytes = meta.len();
+                }
+            } else if app.install_method != InstallMethod::Flatpak && app.install_method != InstallMethod::Bottles {
+                if app.total_size_bytes == 0 {
+                    if let Ok(meta) = std::fs::metadata(&bin_path) {
+                        app.total_size_bytes = meta.len();
+                    }
+                }
             }
         }
     }
@@ -160,7 +210,7 @@ pub fn parse_desktop_entry_content(content: &str, file_path: &Path) -> Option<Ap
     if let Some(bottle_info) = probe_bottle_app(exec.as_deref(), app.exec_path.as_deref()) {
         app.install_method = InstallMethod::Bottles;
         if bottle_info.payload_size_bytes > 0 {
-            app.total_size_bytes += bottle_info.payload_size_bytes;
+            app.total_size_bytes = bottle_info.payload_size_bytes;
             if let Some(p_dir) = bottle_info.program_dir {
                 app.artifacts.push(AppArtifact::new(
                     ArtifactKind::AppDir,
@@ -186,7 +236,9 @@ pub fn parse_desktop_entry_content(content: &str, file_path: &Path) -> Option<Ap
 
     // Add desktop file artifact
     if let Ok(meta) = std::fs::metadata(file_path) {
-        app.total_size_bytes += meta.len();
+        if app.total_size_bytes == 0 {
+            app.total_size_bytes = meta.len();
+        }
         app.artifacts.push(AppArtifact::new(
             ArtifactKind::DesktopEntry,
             file_path.to_path_buf(),
@@ -196,6 +248,87 @@ pub fn parse_desktop_entry_content(content: &str, file_path: &Path) -> Option<Ap
     }
 
     Some(app)
+}
+
+/// Attempts to query the host package manager (RPM, DPKG, Pacman) to find the package name
+/// and true installed size for a given binary path.
+pub fn resolve_native_package_info(bin_path: &Path) -> Option<(String, u64, InstallMethod)> {
+    let path_str = bin_path.to_string_lossy();
+
+    // 1. Check RPM (Fedora, RHEL, CentOS, openSUSE)
+    if which::which("rpm").is_ok() {
+        if let Ok(output) = std::process::Command::new("rpm")
+            .args(["-qf", "--queryformat", "%{NAME}\t%{SIZE}", &path_str])
+            .output()
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if let Some((pkg, size_str)) = stdout.trim().split_once('\t') {
+                    if let Ok(size) = size_str.trim().parse::<u64>() {
+                        return Some((pkg.to_string(), size, InstallMethod::NativeDnf));
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Check DPKG (Debian, Ubuntu, Linux Mint)
+    if which::which("dpkg").is_ok() {
+        if let Ok(output) = std::process::Command::new("dpkg")
+            .args(["-S", &path_str])
+            .output()
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if let Some((pkg_part, _)) = stdout.split_once(':') {
+                    let pkg = pkg_part.split(':').next().unwrap_or("").trim();
+                    if !pkg.is_empty() {
+                        if let Ok(q_out) = std::process::Command::new("dpkg-query")
+                            .args(["-W", "-f=${Installed-Size}", pkg])
+                            .output()
+                        {
+                            if q_out.status.success() {
+                                let size_kb: u64 = String::from_utf8_lossy(&q_out.stdout).trim().parse().unwrap_or(0);
+                                return Some((pkg.to_string(), size_kb * 1024, InstallMethod::NativeApt));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Check Pacman (Arch Linux, Manjaro)
+    if which::which("pacman").is_ok() {
+        if let Ok(output) = std::process::Command::new("pacman")
+            .args(["-Qo", &path_str])
+            .output()
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if let Some(pkg) = stdout.split("is owned by").nth(1).and_then(|s| s.split_whitespace().next()) {
+                    if let Ok(qi_out) = std::process::Command::new("pacman")
+                        .args(["-Qi", pkg])
+                        .output()
+                    {
+                        if qi_out.status.success() {
+                            let qi_str = String::from_utf8_lossy(&qi_out.stdout);
+                            for line in qi_str.lines() {
+                                if let Some((k, v)) = line.split_once(':') {
+                                    if k.trim() == "Installed Size" {
+                                        let size = crate::scanner::flatpak::parse_flatpak_size_string(v.trim());
+                                        return Some((pkg.to_string(), size, InstallMethod::NativePacman));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    None
 }
 
 /// Cleans Exec field by removing XDG parameter codes (%f, %u, %F, %U, etc.) and quotes.
@@ -224,8 +357,14 @@ pub fn extract_binary_from_exec(exec: &str) -> String {
         parts.push(current);
     }
 
-    let first = parts.into_iter().next().unwrap_or_default();
-    first
+    for part in parts {
+        if part == "env" || part.contains('=') {
+            continue;
+        }
+        return part;
+    }
+
+    String::new()
 }
 
 /// Resolves a binary command to its absolute PathBuf if it exists on disk or in PATH.
