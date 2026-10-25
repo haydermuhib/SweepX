@@ -48,11 +48,11 @@ The script detects your architecture (`x86_64` or `aarch64`), fetches the latest
 ### 1. Unified package tracker
 Discovers and tracks software across multiple packaging systems simultaneously:
 - **Native packages:** Debian/Ubuntu (APT/dpkg), Fedora/RHEL (DNF/RPM), and Arch Linux (Pacman).
-- **Container runtimes:** Flatpak user and system installations, plus active Snap packages.
-- **Standalone binaries:** Portable AppImages and unmanaged software installed in `/opt` or `~/.local/bin`.
+- **Container runtimes:** Flatpak user and system installations, plus Snap packages with dedicated container ID insulation.
+- **Standalone binaries and CLI tools:** Portable AppImages, `/opt` installations, and dynamic user `$PATH` tools (such as `~/.pixi/bin`, `~/.spicetify`, `~/.cargo/bin`, `~/.local/bin`) scoped cleanly to executable binaries.
 
 ### 2. Live installation watcher
-Tracks manual source builds (`make install`, custom installer scripts) in real time. SweepX records filesystem snapshot diffs and stores an exact manifest, allowing complete, zero-loss uninstallation later:
+Tracks manual source builds (`make install`, custom installer scripts) in real time. SweepX records filesystem snapshot diffs and stores an exact manifest, allowing complete uninstallation later:
 ```bash
 sweepx watch --name "my-tool" -- sudo make install
 ```
@@ -65,17 +65,20 @@ Traditional package managers often leave user configuration directories, caches,
 - User-level background services (`~/.config/systemd/user/<app>.service`)
 - Dangling and broken symlinks in `/usr/local/bin` and `~/.local/bin`
 
-### 4. System optimization sweep
+### 4. Deterministic footprint accounting
+Base storage footprints are derived directly from package payloads. The dashboard provides a header toggle between binary IEC units (`GiB`, base-1024 default) and decimal SI units (`GB`, base-1000) for exact metric accounting.
+
+### 5. System optimization sweep
 Finds and reclaims disk space from obsolete runtime files:
 - **Snap revisions:** Prunes disabled and old Snap revisions.
 - **Flatpak runtimes:** Removes unreferenced runtime dependencies and temporary run data.
 - **Package caches:** Cleans APT, DNF, and Pacman download caches.
 - **Bulky installer archives:** Flags lingering `.iso`, `.zip`, and `.tar.gz` downloads in `~/Downloads`.
 
-### 5. AppImage desktop integration
+### 6. AppImage desktop integration
 Inspects AppImages, extracts embedded `.DirIcon` assets into `~/.local/share/icons`, and generates valid XDG `.desktop` application menu launchers with one click.
 
-### 6. Multi-tier safety barrier
+### 7. Multi-tier safety barrier
 - **Protected paths:** Deletions targeting root, user home roots (`/home/$USER`), `/usr`, `/etc`, or `/var` are strictly blocked.
 - **FreeDesktop Trash:** Moves residual files to the desktop Trash by default, with an optional permanent purge mode.
 - **PolicyKit integration:** Uses `pkexec` graphical prompts for system operations with terminal `sudo` fallback.
@@ -217,10 +220,10 @@ For complete subsystem diagrams, sequence flows, and contributor guides, see **[
 
 For a comprehensive understanding of the project internals, multi-tier scanning engine, zero-tolerance safety guardrails, and how to contribute:
 
-- 📖 **[ARCHITECTURE.md](ARCHITECTURE.md)** — Complete subsystem breakdown, data flow sequence diagrams, and module responsibilities.
-- 📊 **[PRESENTATION.md](PRESENTATION.md)** — 15-minute architecture slide deck & technical deep dive for contributors and maintainers.
-- 🌐 **[Showcase Website](https://haydermuhib.github.io/SweepX/)** — Interactive landing page, feature showcase, and visual tour.
-- 🤖 **[Machine Documentation](llms.txt)** — Context for AI agents and LLM tooling.
+- **[ARCHITECTURE.md](ARCHITECTURE.md)**: Subsystem breakdown, data flow sequence diagrams, and module responsibilities.
+- **[PRESENTATION.md](PRESENTATION.md)**: Architecture slide deck and technical deep dive for contributors and maintainers.
+- **[Showcase Website](https://haydermuhib.github.io/SweepX/)**: Interactive landing page, feature showcase, and visual tour.
+- **[Machine Documentation](llms.txt)**: Technical context for AI agents and LLM tooling.
 
 ---
 

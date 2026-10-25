@@ -2,17 +2,17 @@
 
 > Unified Linux Application Tracker, Live Installation Watcher, and Deep Residual Uninstaller in pure Rust (Iced GUI).
 
-SweepX provides a single, unified view of all user software across native packaging formats (Debian/Ubuntu dpkg, Arch Linux pacman, Fedora/RHEL rpm), containerized packaging runtimes (Flatpak, Snap), standalone AppImages, and unmanaged installations in `/opt` or `~/.local/bin`.
+SweepX provides a unified inventory of software across native packaging formats (Debian and Ubuntu dpkg, Arch Linux pacman, Fedora and RHEL rpm), containerized packaging runtimes (Flatpak, Snap), standalone AppImages, and manual installations in `/opt` or user `$PATH` directories (such as `~/.local/bin`, `~/.pixi/bin`, `~/.cargo/bin`).
 
-It includes a live installation watcher that snapshots filesystem changes during manual builds (`make install`), a heuristic residual hunter that scans XDG directories and systemd unit files, and a fail-safe multi-tier safety barrier that prevents unintended deletions of critical operating system paths.
+It includes an installation watcher that records filesystem changes during source builds (`make install`), a residual cleaner that inspects XDG directories and user systemd files, and a safety barrier that prevents deletion of system paths.
 
 ## Core Capabilities
 
-- **Unified Multi-Format Discovery:** Scans dpkg, pacman, rpm, flatpak, snap, AppImage, and /opt simultaneously without heavy background daemon overhead.
+- **Unified Multi-Format Discovery:** Scans dpkg, pacman, rpm, flatpak, snap, AppImages, /opt, and user $PATH without background daemon overhead.
 - **Real-Time Install Watcher:** Wraps source builds (`make install`, custom install scripts) to capture filesystem diffs and store exact deletion manifests.
-- **Deep Residual Purge:** Discovers orphaned configuration files (`~/.config`), cache trees (`~/.cache`), local application data (`~/.local/share`), broken symlinks, and user systemd services.
-- **Safety Barrier:** Hardcoded path validation prevents removal of root (`/`), user home roots (`/home/$USER`), `/usr`, `/etc`, `/var`, and active shell configurations.
-- **Dual Interface:** Runs either as a 60 FPS hardware-accelerated GUI (`Iced 0.13`) or as a standalone, scriptable CLI with JSON output.
+- **Deep Residual Purge:** Discovers leftover configuration files (`~/.config`), cache trees (`~/.cache`), local application data (`~/.local/share`), broken symlinks, and user systemd services.
+- **Safety Barrier:** Validates paths to prevent removal of root (`/`), user home roots (`/home/$USER`), `/usr`, `/etc`, `/var`, and active shell configurations.
+- **Dual Interface:** Runs as a desktop GUI (`Iced 0.13`) with a GiB/GB storage unit toggle, or as a standalone CLI with JSON output.
 - **In-Place Self-Updater:** Checks GitHub Releases and atomically swaps the running executable binary without requiring external package managers.
 
 ## Quick Installation

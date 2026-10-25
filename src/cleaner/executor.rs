@@ -2,7 +2,7 @@ use super::privilege::run_elevated_command;
 use super::safety::SafetyValidator;
 use crate::models::{Application, InstallMethod, ResidualCandidate};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tokio::process::Command;
 
 /// Deletion strategy for removing leftover artifacts.
@@ -10,6 +10,54 @@ use tokio::process::Command;
 pub enum DeletionMode {
     Trash,
     Permanent,
+}
+
+/// Helper to delete a target path safely using Trash or Permanent mode, falling back to elevated rm if needed.
+pub async fn delete_target_path(path: &Path, mode: DeletionMode) -> Result<(), String> {
+    if !path.exists() && !path.is_symlink() {
+        return Ok(());
+    }
+
+    if let Err(violation) = SafetyValidator::is_path_safe_to_delete(path) {
+        return Err(format!("Blocked by safety validator: {}", violation));
+    }
+
+    match mode {
+        DeletionMode::Trash => match trash::delete(path) {
+            Ok(()) => Ok(()),
+            Err(e) => Err(format!("Failed to move {} to trash: {}", path.display(), e)),
+        },
+        DeletionMode::Permanent => {
+            let res = if !path.is_symlink() && path.is_dir() {
+                std::fs::remove_dir_all(path)
+            } else {
+                std::fs::remove_file(path)
+            };
+
+            match res {
+                Ok(()) => Ok(()),
+                Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                    let path_str = path.to_string_lossy().to_string();
+                    let args = if !path.is_symlink() && path.is_dir() {
+                        vec!["-rf", path_str.as_str()]
+                    } else {
+                        vec!["-f", path_str.as_str()]
+                    };
+                    run_elevated_command("rm", &args)
+                        .await
+                        .map(|_| ())
+                        .map_err(|err| {
+                            format!(
+                                "Permission denied deleting {}. Elevated removal (pkexec/sudo) failed: {}. Verify polkit authentication agent is active or adjust target permissions.",
+                                path.display(),
+                                err
+                            )
+                        })
+                }
+                Err(e) => Err(format!("Failed to delete {}: {}", path.display(), e)),
+            }
+        }
+    }
 }
 
 /// Detailed audit report of an uninstallation / purge action.
@@ -25,7 +73,7 @@ pub struct PurgeReport {
 }
 
 /// Executes the removal of the primary package based on its installation method.
-pub async fn execute_purge_package(app: &Application) -> Result<String, String> {
+pub async fn execute_purge_package(app: &Application, mode: DeletionMode) -> Result<String, String> {
     match app.install_method {
         InstallMethod::Flatpak => {
             let output = Command::new("flatpak")
@@ -40,46 +88,131 @@ pub async fn execute_purge_package(app: &Application) -> Result<String, String> 
                     .args(["uninstall", "--unused", "-y"])
                     .output()
                     .await;
+
+                // Also clean up desktop file export if still present
+                if let Some(ref desk) = app.desktop_file {
+                    if desk.exists() || desk.is_symlink() {
+                        let _ = delete_target_path(desk, mode).await;
+                    }
+                }
+
                 Ok(String::from_utf8_lossy(&output.stdout).to_string())
             } else {
                 Err(String::from_utf8_lossy(&output.stderr).to_string())
             }
         }
         InstallMethod::Snap => {
-            run_elevated_command("snap", &["remove", "--purge", &app.id]).await
+            let res = run_elevated_command("snap", &["remove", "--purge", &app.id]).await?;
+            if let Some(ref desk) = app.desktop_file {
+                if desk.exists() || desk.is_symlink() {
+                    let _ = delete_target_path(desk, mode).await;
+                }
+            }
+            Ok(res)
         }
         InstallMethod::NativeApt => {
             let res = run_elevated_command("apt-get", &["purge", "-y", &app.id]).await?;
             let _ = run_elevated_command("apt-get", &["autoremove", "-y"]).await;
+            if let Some(ref desk) = app.desktop_file {
+                if desk.exists() || desk.is_symlink() {
+                    let _ = delete_target_path(desk, mode).await;
+                }
+            }
             Ok(res)
         }
         InstallMethod::NativeDnf => {
             let res = run_elevated_command("dnf", &["remove", "-y", &app.id]).await?;
             let _ = run_elevated_command("dnf", &["autoremove", "-y"]).await;
+            if let Some(ref desk) = app.desktop_file {
+                if desk.exists() || desk.is_symlink() {
+                    let _ = delete_target_path(desk, mode).await;
+                }
+            }
             Ok(res)
         }
         InstallMethod::NativePacman => {
-            run_elevated_command("pacman", &["-Rns", "--noconfirm", &app.id]).await
+            let res = run_elevated_command("pacman", &["-Rns", "--noconfirm", &app.id]).await?;
+            if let Some(ref desk) = app.desktop_file {
+                if desk.exists() || desk.is_symlink() {
+                    let _ = delete_target_path(desk, mode).await;
+                }
+            }
+            Ok(res)
         }
         InstallMethod::Bottles => {
+            let mut errors = Vec::new();
             for artifact in &app.artifacts {
-                if artifact.kind == crate::models::ArtifactKind::AppDir && artifact.path.exists() {
-                    let _ = trash::delete(&artifact.path);
+                if artifact.path.exists() || artifact.path.is_symlink() {
+                    if let Err(e) = delete_target_path(&artifact.path, mode).await {
+                        errors.push(e);
+                    }
+                }
+            }
+            if let Some(ref exec) = app.exec_path {
+                if exec.exists() || exec.is_symlink() {
+                    if let Err(e) = delete_target_path(exec, mode).await {
+                        errors.push(e);
+                    }
+                }
+            }
+            if let Some(ref desk) = app.desktop_file {
+                if desk.exists() || desk.is_symlink() {
+                    if let Err(e) = delete_target_path(desk, mode).await {
+                        errors.push(e);
+                    }
                 }
             }
             if let Ok(db) = crate::db::Database::open_default() {
                 let _ = db.delete_install_manifest(&app.id);
             }
-            Ok("Bottles application payload moved to trash".to_string())
+            if errors.is_empty() {
+                Ok("Bottles application payload removed successfully".to_string())
+            } else {
+                Err(errors.join("; "))
+            }
         }
         InstallMethod::ManualOpt
         | InstallMethod::AppImage
         | InstallMethod::CustomDesktop => {
-            // For manual / AppImage, package removal is handled through artifact/directory deletion
+            let mut errors = Vec::new();
+
+            // 1. Delete associated package artifacts (e.g. /opt/appdir, standalone binary)
+            for artifact in &app.artifacts {
+                if artifact.path.exists() || artifact.path.is_symlink() {
+                    if let Err(e) = delete_target_path(&artifact.path, mode).await {
+                        errors.push(e);
+                    }
+                }
+            }
+
+            // 2. Delete primary executable binary if still present on disk
+            if let Some(ref exec) = app.exec_path {
+                if exec.exists() || exec.is_symlink() {
+                    if let Err(e) = delete_target_path(exec, mode).await {
+                        errors.push(e);
+                    }
+                }
+            }
+
+            // 3. Delete desktop launcher if present
+            if let Some(ref desk) = app.desktop_file {
+                if desk.exists() || desk.is_symlink() {
+                    if let Err(e) = delete_target_path(desk, mode).await {
+                        errors.push(e);
+                    }
+                }
+            }
+
+            // 4. Clean up SQLite install manifest if present
             if let Ok(db) = crate::db::Database::open_default() {
                 let _ = db.delete_install_manifest(&app.id);
             }
-            Ok("Installation ready for artifact cleanup".to_string())
+
+            if errors.is_empty() {
+                Ok("Application package payload and binaries removed successfully".to_string())
+            } else {
+                Err(errors.join("; "))
+            }
         }
     }
 }

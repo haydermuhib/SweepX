@@ -1,7 +1,7 @@
 use crate::models::InstallMethod;
 use iced::border::Border;
 use iced::widget::{button, container, scrollable, text_input};
-use iced::{Background, Color, Shadow, Vector};
+use iced::{Background, Color, Length, Shadow, Vector};
 
 pub struct Theme;
 
@@ -411,6 +411,55 @@ impl Theme {
         }
     }
 
+    /// Dedicated high-contrast toggle button style for the header (e.g. Unit system switch)
+    pub fn header_toggle_button(status: button::Status) -> button::Style {
+        match status {
+            button::Status::Hovered => button::Style {
+                background: Some(Background::Color(Color::from_rgba(
+                    0x9e as f32 / 255.0,
+                    0xcb as f32 / 255.0,
+                    0x82 as f32 / 255.0,
+                    0.25,
+                ))),
+                text_color: Self::WARM_CREAM,
+                border: Border {
+                    color: Self::PISTACHIO,
+                    width: 1.0,
+                    radius: 7.0.into(),
+                },
+                shadow: Self::ELEVATION_BUTTON_HOVER,
+                ..Default::default()
+            },
+            button::Status::Pressed => button::Style {
+                background: Some(Background::Color(Color::from_rgba(
+                    0x9e as f32 / 255.0,
+                    0xcb as f32 / 255.0,
+                    0x82 as f32 / 255.0,
+                    0.40,
+                ))),
+                text_color: Self::WARM_CREAM,
+                border: Border {
+                    color: Self::PISTACHIO_PRESSED,
+                    width: 1.0,
+                    radius: 7.0.into(),
+                },
+                shadow: Self::ELEVATION_BUTTON_PRESSED,
+                ..Default::default()
+            },
+            _ => button::Style {
+                background: Some(Background::Color(Self::BURGUNDY_INSET)),
+                text_color: Self::WARM_CREAM,
+                border: Border {
+                    color: Self::BORDER_COLOR,
+                    width: 1.0,
+                    radius: 7.0.into(),
+                },
+                shadow: Self::ELEVATION_BUTTON,
+                ..Default::default()
+            },
+        }
+    }
+
     pub fn danger_button(status: button::Status) -> button::Style {
         match status {
             button::Status::Hovered => button::Style {
@@ -737,7 +786,8 @@ impl Theme {
         container(
             iced::widget::text(label)
                 .size(10)
-                .color(fg),
+                .color(fg)
+                .wrapping(iced::widget::text::Wrapping::None),
         )
         .style(move |_t| container::Style {
             background: Some(Background::Color(bg)),
@@ -749,6 +799,7 @@ impl Theme {
             ..Default::default()
         })
         .padding([2, 7])
+        .width(Length::Shrink)
         .into()
     }
 }

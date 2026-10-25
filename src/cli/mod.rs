@@ -11,6 +11,7 @@ use crate::models::{format_size, Application, InstallMethod};
 use crate::scanner::scan_all_applications;
 use chrono::Utc;
 use indicatif::{ProgressBar, ProgressStyle};
+use std::path::PathBuf;
 use std::time::Duration;
 
 /// Creates an animated high-contrast terminal spinner with a steady tick.
@@ -200,35 +201,74 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
                 "Moving application files to system Trash..."
             });
 
-            let _pkg_res = execute_purge_package(app).await;
             let mode = if permanent {
                 DeletionMode::Permanent
             } else {
                 DeletionMode::Trash
             };
 
+            let pkg_res = execute_purge_package(app, mode).await;
+
             let report = execute_purge_residuals(&residuals, mode).await;
             purge_sp.finish_and_clear();
 
             if let Ok(db) = Database::open_default() {
+                let mut deleted_paths: Vec<PathBuf> = report
+                    .deleted_paths
+                    .iter()
+                    .chain(report.trashed_paths.iter())
+                    .cloned()
+                    .collect();
+                let mut freed_bytes = report.freed_bytes;
+
+                if pkg_res.is_ok() {
+                    freed_bytes += app.total_size_bytes;
+                    if let Some(ref exec) = app.exec_path {
+                        if !deleted_paths.contains(exec) {
+                            deleted_paths.insert(0, exec.clone());
+                        }
+                    }
+                    if let Some(ref desk) = app.desktop_file {
+                        if !deleted_paths.contains(desk) {
+                            deleted_paths.push(desk.clone());
+                        }
+                    }
+                    for artifact in &app.artifacts {
+                        if !deleted_paths.contains(&artifact.path) {
+                            deleted_paths.push(artifact.path.clone());
+                        }
+                    }
+                }
+
+                let is_success = report.success && pkg_res.is_ok();
+                let is_partial = !deleted_paths.is_empty() && (!report.success || pkg_res.is_err());
+
                 let audit = AuditLogEntry {
                     id: None,
                     app_id: app.id.clone(),
                     app_name: app.display_name.clone(),
                     install_method: app.install_method.badge_label().to_string(),
                     timestamp: Utc::now(),
-                    freed_bytes: report.freed_bytes + app.total_size_bytes,
-                    deleted_paths: report
-                        .deleted_paths
-                        .iter()
-                        .chain(report.trashed_paths.iter())
-                        .cloned()
-                        .collect(),
-                    status: if report.success { "SUCCESS".to_string() } else { "PARTIAL".to_string() },
-                    error_details: if report.errors.is_empty() {
+                    freed_bytes,
+                    deleted_paths,
+                    status: if is_success {
+                        "SUCCESS".to_string()
+                    } else if is_partial {
+                        "PARTIAL".to_string()
+                    } else {
+                        "FAILED".to_string()
+                    },
+                    error_details: if report.errors.is_empty() && pkg_res.is_ok() {
                         None
                     } else {
-                        Some(format!("{:?}", report.errors))
+                        let mut errs = Vec::new();
+                        if let Err(e) = pkg_res {
+                            errs.push(format!("Package error: {}", e));
+                        }
+                        for (p, e) in &report.errors {
+                            errs.push(format!("{}: {}", p.display(), e));
+                        }
+                        Some(errs.join("; "))
                     },
                 };
                 let _ = db.record_audit(&audit);
@@ -476,6 +516,11 @@ pub async fn run_cli_command(cmd: Commands) -> Result<(), Box<dyn std::error::Er
                     sp.finish_with_message(format!("✗ Failed to check for updates: {}", e));
                 }
             }
+        }
+        Commands::InstallAssets => {
+            crate::updater::update_installed_assets()
+                .map_err(|e| format!("Failed to update assets: {}", e))?;
+            println!("✓ SweepX desktop launcher and application icons refreshed successfully.");
         }
     }
 

@@ -63,13 +63,8 @@ pub async fn scan_manual_installations() -> Vec<Application> {
             }
         }
 
-        // 2. Scan standard standalone binaries, user CLI tools, and AppImages
-        let mut custom_scan_dirs = vec![PathBuf::from("/usr/local/bin")];
-        if let Some(home) = dirs::home_dir() {
-            custom_scan_dirs.push(home.join(".local/bin"));
-            custom_scan_dirs.push(home.join("Applications"));
-            custom_scan_dirs.push(home.join("bin"));
-        }
+        // 2. Scan standard user binary locations and dynamic user-space $PATH directories
+        let custom_scan_dirs = get_user_binary_scan_dirs();
 
         for dir in custom_scan_dirs {
             if !dir.exists() {
@@ -94,9 +89,9 @@ pub async fn scan_manual_installations() -> Vec<Application> {
                     }
 
                     let is_appimage = file_name.to_lowercase().ends_with(".appimage") || is_appimage_binary(path);
-                    let is_elf = is_elf_binary(path);
+                    let is_prog = is_executable_program(path);
 
-                    if (is_appimage || is_elf) && is_file_executable(path) {
+                    if (is_appimage || is_prog) && is_file_executable(path) {
                         // Skip if owned by package manager
                         if is_path_owned_by_package_manager(path) {
                             continue;
@@ -273,6 +268,30 @@ fn is_appimage_binary(path: &Path) -> bool {
     false
 }
 
+/// Checks if a file starts with a script shebang (#!).
+fn has_shebang(path: &Path) -> bool {
+    use std::io::Read;
+    if let Ok(mut file) = std::fs::File::open(path) {
+        let mut magic = [0u8; 2];
+        if file.read_exact(&mut magic).is_ok() {
+            return magic == [b'#', b'!'];
+        }
+    }
+    false
+}
+
+/// Checks if a file is an executable program (ELF, AppImage, or shebang script).
+fn is_executable_program(path: &Path) -> bool {
+    if !is_file_executable(path) {
+        return false;
+    }
+    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    if is_forbidden_extension(file_name) {
+        return false;
+    }
+    is_appimage_binary(path) || is_elf_binary(path) || has_shebang(path)
+}
+
 /// Recursively calculates the complete byte size of a directory.
 pub fn calculate_dir_size(path: &Path) -> u64 {
     if !path.exists() {
@@ -302,15 +321,77 @@ fn is_file_executable(path: &Path) -> bool {
     false
 }
 
-/// Searches top level of an /opt directory for an executable binary.
+/// Searches top level of an /opt directory or user suite for an executable binary.
 fn find_candidate_binary_in_dir(dir: &Path) -> Option<PathBuf> {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() && is_file_executable(&path) && is_elf_binary(&path) {
+            if path.is_file() && is_executable_program(&path) {
                 return Some(path);
             }
         }
     }
     None
 }
+
+/// Dynamically extracts user-space scan directories from standard locations and $PATH.
+pub fn get_user_binary_scan_dirs() -> Vec<PathBuf> {
+    extract_user_binary_scan_dirs(std::env::var_os("PATH"))
+}
+
+/// Helper function to parse user-space binary directories from an optional PATH OsString without hardcoding.
+pub fn extract_user_binary_scan_dirs(path_var: Option<std::ffi::OsString>) -> Vec<PathBuf> {
+    let mut scan_dirs = Vec::new();
+    let mut seen = HashSet::new();
+
+    let home = dirs::home_dir();
+
+    // 1. Standard user binary locations
+    if let Some(ref h) = home {
+        for standard in &[h.join(".local/bin"), h.join("Applications"), h.join("bin")] {
+            if standard.exists() && seen.insert(standard.clone()) {
+                scan_dirs.push(standard.clone());
+            }
+        }
+    }
+    let usr_local = PathBuf::from("/usr/local/bin");
+    if usr_local.exists() && seen.insert(usr_local.clone()) {
+        scan_dirs.push(usr_local);
+    }
+
+    // 2. Dynamic ingestion of user-space directories from $PATH
+    if let Some(path_str) = path_var {
+        for p in std::env::split_paths(&path_str) {
+            if !p.exists() || !p.is_dir() {
+                continue;
+            }
+            let s = p.to_string_lossy();
+
+            // Exclude system binaries, container wrapper paths, and editor/agent internals
+            if s.starts_with("/bin")
+                || s == "/usr/bin"
+                || s.starts_with("/sbin")
+                || s.starts_with("/usr/sbin")
+                || s.contains("/snap/")
+                || s.contains("/flatpak/")
+                || s.contains(".gemini")
+                || s.contains(".vscode")
+                || s.contains(".vscode-server")
+                || s.contains(".antigravity")
+            {
+                continue;
+            }
+
+            // Only include user-owned or local directories ($HOME or /usr/local)
+            let is_user_path = home.as_ref().map(|h| p.starts_with(h)).unwrap_or(false)
+                || s.starts_with("/usr/local");
+
+            if is_user_path && seen.insert(p.clone()) {
+                scan_dirs.push(p);
+            }
+        }
+    }
+
+    scan_dirs
+}
+

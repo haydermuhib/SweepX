@@ -85,6 +85,10 @@ pub enum Commands {
         #[arg(short, long)]
         check: bool,
     },
+
+    /// Refresh local desktop launcher, icons, and desktop databases
+    #[command(hide = true)]
+    InstallAssets,
 }
 
 #[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]

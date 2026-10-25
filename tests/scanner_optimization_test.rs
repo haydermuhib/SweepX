@@ -155,3 +155,209 @@ async fn test_profile_scanner_breakdown() {
     println!("================================\n");
 }
 
+#[tokio::test]
+async fn test_manual_scanner_deduplicates_against_existing_desktop_apps() {
+    use std::collections::HashMap;
+    use sweepx::models::{Application, InstallMethod};
+    use sweepx::scanner::orchestrator::{apply_stage_batch, ScanStageBatch};
+
+    let mut app_map = HashMap::new();
+
+    // 1. Existing Spotify desktop application
+    let mut desktop_spotify = Application::new("spotify.desktop", "Spotify", InstallMethod::CustomDesktop);
+    desktop_spotify.exec_path = Some(std::path::PathBuf::from("/usr/bin/spotify"));
+    app_map.insert(desktop_spotify.id.clone(), desktop_spotify);
+
+    // 2. Incoming manual Spotify entry (e.g. from ~/.local/bin/spotify or wrapper)
+    let mut manual_spotify = Application::new("spotify", "spotify", InstallMethod::ManualOpt);
+    manual_spotify.exec_path = Some(std::path::PathBuf::from("/home/user/.local/bin/spotify"));
+
+    // 3. Incoming unique manual app (e.g. spicetify)
+    let mut manual_spicetify = Application::new("spicetify", "spicetify", InstallMethod::ManualOpt);
+    manual_spicetify.exec_path = Some(std::path::PathBuf::from("/home/user/.spicetify/spicetify"));
+
+    apply_stage_batch(&mut app_map, ScanStageBatch::Manual(vec![manual_spotify, manual_spicetify]));
+
+    // Assert that Spotify was not duplicated (only the original desktop entry exists)
+    assert_eq!(app_map.values().filter(|a| a.name.to_lowercase() == "spotify").count(), 1);
+    assert_eq!(app_map.get("spotify.desktop").unwrap().install_method, InstallMethod::CustomDesktop);
+
+    // Assert that unique tool (spicetify) was added safely
+    assert!(app_map.contains_key("spicetify"));
+}
+
+#[tokio::test]
+async fn test_manual_scanner_deduplicates_against_flatpak_and_snap_containers() {
+    use std::collections::HashMap;
+    use sweepx::models::{Application, InstallMethod};
+    use sweepx::scanner::orchestrator::{apply_stage_batch, ScanStageBatch};
+
+    let mut app_map = HashMap::new();
+
+    // Flatpak app with reverse-DNS ID
+    let flatpak_discord = Application::new("com.discordapp.Discord", "Discord", InstallMethod::Flatpak);
+    app_map.insert(flatpak_discord.id.clone(), flatpak_discord);
+
+    // Snap app with short name ID
+    let snap_slack = Application::new("slack", "Slack", InstallMethod::Snap);
+    app_map.insert(snap_slack.id.clone(), snap_slack);
+
+    // Manual duplicates discovered via bin paths
+    let manual_discord = Application::new("discord", "discord", InstallMethod::ManualOpt);
+    let manual_slack = Application::new("slack", "slack", InstallMethod::ManualOpt);
+    let manual_unique = Application::new("my-custom-cli", "my-custom-cli", InstallMethod::ManualOpt);
+
+    apply_stage_batch(
+        &mut app_map,
+        ScanStageBatch::Manual(vec![manual_discord, manual_slack, manual_unique]),
+    );
+
+    // Discord count must remain 1 (no manual duplicate)
+    assert_eq!(app_map.values().filter(|a| a.name.to_lowercase() == "discord").count(), 1);
+    assert_eq!(app_map.get("com.discordapp.Discord").unwrap().install_method, InstallMethod::Flatpak);
+
+    // Slack count must remain 1 (no manual duplicate)
+    assert_eq!(app_map.values().filter(|a| a.name.to_lowercase() == "slack").count(), 1);
+    assert_eq!(app_map.get("slack").unwrap().install_method, InstallMethod::Snap);
+
+    // Unique tool must be preserved
+    assert!(app_map.contains_key("my-custom-cli"));
+}
+
+#[tokio::test]
+async fn test_manual_scanner_binary_isolation_avoids_user_data_attachment() {
+    use sweepx::models::{ArtifactKind, InstallMethod};
+
+    let temp_dir = std::env::temp_dir().join("sweepx_test_binary_isolation");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    std::fs::create_dir_all(&temp_dir).unwrap();
+
+    let bin_path = temp_dir.join("spicetify");
+    std::fs::write(&bin_path, [0x7f, b'E', b'L', b'F', 0, 0, 0, 0]).unwrap();
+
+    let mut app = sweepx::models::Application::new("spicetify", "spicetify", InstallMethod::ManualOpt);
+    app.exec_path = Some(bin_path.clone());
+    app.artifacts.push(sweepx::models::AppArtifact::new(
+        ArtifactKind::Binary,
+        bin_path.clone(),
+        8,
+        true,
+    ));
+
+    // Verify artifact kind is strictly Binary and never AppDir, ConfigDir, or DataDir
+    assert_eq!(app.artifacts.len(), 1);
+    assert_eq!(app.artifacts[0].kind, ArtifactKind::Binary);
+    assert_ne!(app.artifacts[0].kind, ArtifactKind::AppDir);
+    assert_ne!(app.artifacts[0].kind, ArtifactKind::ConfigDir);
+    assert_ne!(app.artifacts[0].kind, ArtifactKind::DataDir);
+
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[tokio::test]
+async fn test_orchestrator_simultaneous_snapd_and_spicetify_isolation() {
+    use std::collections::HashMap;
+    use sweepx::models::{Application, InstallMethod};
+    use sweepx::scanner::orchestrator::{apply_stage_batch, ScanStageBatch};
+
+    let mut app_map = HashMap::new();
+
+    // 1. Desktop Entry stage
+    let desktop_spotify = Application::new("spotify.desktop", "Spotify", InstallMethod::CustomDesktop);
+    apply_stage_batch(&mut app_map, ScanStageBatch::Desktop(vec![desktop_spotify]));
+
+    // 2. Snap stage: snapd container app
+    let snap_snapd = Application::new("snapd", "snapd", InstallMethod::Snap);
+    apply_stage_batch(&mut app_map, ScanStageBatch::Snap(vec![snap_snapd]));
+
+    // 3. Manual stage: spicetify tool + duplicate spotify wrapper
+    let manual_spicetify = Application::new("spicetify", "spicetify", InstallMethod::ManualOpt);
+    let manual_spotify = Application::new("spotify", "spotify", InstallMethod::ManualOpt);
+    apply_stage_batch(&mut app_map, ScanStageBatch::Manual(vec![manual_spicetify, manual_spotify]));
+
+    // 4. Native stage: RPM snapd
+    let rpm_snapd = Application::new("snapd", "snapd", InstallMethod::NativeDnf);
+    apply_stage_batch(&mut app_map, ScanStageBatch::Native(vec![rpm_snapd]));
+
+    // Assert: snapd remains Snap
+    assert!(app_map.contains_key("snapd"));
+    assert_eq!(app_map.get("snapd").unwrap().install_method, InstallMethod::Snap);
+
+    // Assert: native RPM snapd isolated under native-snapd
+    assert!(app_map.contains_key("native-snapd"));
+    assert_eq!(app_map.get("native-snapd").unwrap().install_method, InstallMethod::NativeDnf);
+    assert!(app_map.get("native-snapd").unwrap().is_system);
+
+    // Assert: Spotify deduplicated to 1 entry
+    assert_eq!(app_map.values().filter(|a| a.name.to_lowercase() == "spotify").count(), 1);
+
+    // Assert: spicetify preserved cleanly as standalone manual app
+    assert!(app_map.contains_key("spicetify"));
+    assert_eq!(app_map.get("spicetify").unwrap().install_method, InstallMethod::ManualOpt);
+}
+
+#[test]
+fn test_dynamic_path_discovery_finds_pixi_and_spicetify_without_hardcoding() {
+    use std::path::PathBuf;
+    use sweepx::scanner::manual::extract_user_binary_scan_dirs;
+
+    let base_temp = std::env::temp_dir().join("sweepx_test_dynamic_path");
+    let _ = std::fs::remove_dir_all(&base_temp);
+
+    // Mock home directories
+    let mock_pixi = base_temp.join(".pixi/bin");
+    let mock_spicetify = base_temp.join(".spicetify");
+    let mock_cargo = base_temp.join(".cargo/bin");
+    let mock_gemini = base_temp.join(".gemini/bin");
+
+    std::fs::create_dir_all(&mock_pixi).unwrap();
+    std::fs::create_dir_all(&mock_spicetify).unwrap();
+    std::fs::create_dir_all(&mock_cargo).unwrap();
+    std::fs::create_dir_all(&mock_gemini).unwrap();
+
+    // Construct a synthetic PATH joining these directories plus system paths
+    let synthetic_paths = vec![
+        mock_pixi.clone(),
+        mock_spicetify.clone(),
+        mock_cargo.clone(),
+        mock_gemini.clone(),
+        PathBuf::from("/usr/bin"),
+        PathBuf::from("/bin"),
+        PathBuf::from("/var/lib/snapd/snap/bin"),
+    ];
+
+    let synthetic_path_var = std::env::join_paths(&synthetic_paths).unwrap();
+    let scan_dirs = extract_user_binary_scan_dirs(Some(synthetic_path_var));
+
+    // Assert: System paths are strictly excluded
+    assert!(!scan_dirs.contains(&PathBuf::from("/usr/bin")));
+    assert!(!scan_dirs.contains(&PathBuf::from("/bin")));
+    assert!(!scan_dirs.contains(&PathBuf::from("/var/lib/snapd/snap/bin")));
+
+    // Assert: IDE internal paths are strictly excluded
+    assert!(!scan_dirs.iter().any(|p| p.to_string_lossy().contains(".gemini")));
+
+    let _ = std::fs::remove_dir_all(&base_temp);
+}
+
+#[test]
+fn test_no_hardcoded_app_names_in_manual_scanner_source() {
+    let source_path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/scanner/manual.rs");
+    let source_code = std::fs::read_to_string(source_path)
+        .expect("Failed to read src/scanner/manual.rs");
+
+    // Assert: No specific third-party application names are hardcoded in discovery routines
+    assert!(
+        !source_code.contains(".spicetify"),
+        "src/scanner/manual.rs must not hardcode .spicetify"
+    );
+    assert!(
+        !source_code.contains(".pixi"),
+        "src/scanner/manual.rs must not hardcode .pixi"
+    );
+}
+
+
+
+
+

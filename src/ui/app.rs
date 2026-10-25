@@ -3,7 +3,9 @@ use crate::cleaner::{
     execute_system_sweep, scan_all_sweep_items, DeletionMode, SystemSweepItem,
 };
 use crate::db::{AuditLogEntry, Database};
-use crate::models::{format_size, Application, InstallMethod, ResidualCandidate};
+use crate::models::{
+    format_size_with_unit, Application, InstallMethod, ResidualCandidate, SizeUnitSystem,
+};
 use crate::scanner::scan_all_applications;
 use crate::ui::theme::Theme;
 
@@ -11,7 +13,7 @@ use iced::widget::{
     button, checkbox, column, container, row, scrollable, stack, text, text_input, Space,
 };
 use iced::{Alignment, Element, Length, Task};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,12 +94,14 @@ pub struct SweepXApp {
     pub sort_field: SortField,
     pub sort_direction: SortDirection,
     pub show_system_libraries: bool,
+    pub unit_system: SizeUnitSystem,
 
     // Inspector Modal
     pub inspector_app: Option<Application>,
     pub inspector_residuals: Vec<ResidualCandidate>,
     pub is_inspector_loading: bool,
     pub app_residuals_cache: HashMap<String, u64>,
+    pub in_flight_residuals: HashSet<String>,
 
     // Clean Modal
     pub clean_target: Option<Application>,
@@ -105,6 +109,7 @@ pub struct SweepXApp {
     pub is_clean_loading: bool,
     pub permanent_delete: bool,
     pub is_cleaning: bool,
+    pub purge_package: bool,
 
     // System Sweep
     pub sweep_items: Vec<(SystemSweepItem, bool)>,
@@ -113,6 +118,7 @@ pub struct SweepXApp {
 
     // Audit History
     pub audit_history: Vec<AuditLogEntry>,
+    pub inspector_audit_entry: Option<AuditLogEntry>,
 
     // Notification / Status
     pub status_message: Option<String>,
@@ -127,16 +133,19 @@ pub enum Message {
     FilterCategory(CategoryFilter),
     SelectSort(SortField),
     ToggleShowSystemLibraries(bool),
+    ToggleUnitSystem,
 
-    // Inspector
+    // Inspector & Footprint Cache
     OpenInspector(Application),
     InspectorResidualsLoaded(Vec<ResidualCandidate>),
+    ResidualsBatchLoaded(Vec<(String, u64)>),
     CloseInspector,
 
     // Clean Modal
     OpenCleanModal(Application),
     CleanResidualsLoaded(Vec<ResidualCandidate>),
     ToggleCleanResidual(usize, bool),
+    TogglePurgePackage(bool),
     TogglePermanentDelete(bool),
     ConfirmPurge,
     PurgeCompleted(Result<u64, String>),
@@ -152,6 +161,8 @@ pub enum Message {
     // Audit History
     LoadAuditHistory,
     AuditHistoryLoaded(Vec<AuditLogEntry>),
+    OpenAuditInspector(AuditLogEntry),
+    CloseAuditInspector,
 
     // System Actions
     OpenFolder(PathBuf),
@@ -170,23 +181,27 @@ impl SweepXApp {
             sort_field: SortField::Name,
             sort_direction: SortDirection::Ascending,
             show_system_libraries: false,
+            unit_system: SizeUnitSystem::GiB,
 
             inspector_app: None,
             inspector_residuals: Vec::new(),
             is_inspector_loading: false,
             app_residuals_cache: HashMap::new(),
+            in_flight_residuals: HashSet::new(),
 
             clean_target: None,
             clean_residuals: Vec::new(),
             is_clean_loading: false,
             permanent_delete: false,
             is_cleaning: false,
+            purge_package: true,
 
             sweep_items: Vec::new(),
             is_sweeping: false,
             is_sweep_scanning: false,
 
             audit_history: Vec::new(),
+            inspector_audit_entry: None,
             status_message: Some("Initializing SweepX...".to_string()),
         };
 
@@ -194,6 +209,10 @@ impl SweepXApp {
         let scan_task = Task::perform(scan_all_applications(), Message::ScanCompleted);
 
         (app, scan_task)
+    }
+
+    pub fn format_bytes(&self, bytes: u64) -> String {
+        format_size_with_unit(bytes, self.unit_system)
     }
 
     pub fn title(&self) -> String {
@@ -258,9 +277,43 @@ impl SweepXApp {
                 self.status_message = Some(format!("Discovered {} installed host applications", count));
                 Task::none()
             }
+            Message::ResidualsBatchLoaded(batch) => {
+                for (id, sum) in batch {
+                    self.in_flight_residuals.remove(&id);
+                    self.app_residuals_cache.insert(id, sum);
+                }
+                Task::none()
+            }
             Message::SearchChanged(query) => {
                 self.search_query = query;
-                Task::none()
+                if !self.search_query.trim().is_empty() {
+                    let missing: Vec<Application> = self.applications
+                        .iter()
+                        .filter(|a| {
+                            (!a.is_system || self.show_system_libraries)
+                                && self.category_filter.matches(&a.install_method)
+                                && (a.name.to_lowercase().contains(&self.search_query.to_lowercase())
+                                    || a.display_name.to_lowercase().contains(&self.search_query.to_lowercase())
+                                    || a.id.to_lowercase().contains(&self.search_query.to_lowercase())
+                                    || a.description.as_deref().map(|d| d.to_lowercase().contains(&self.search_query.to_lowercase())).unwrap_or(false))
+                                && !self.app_residuals_cache.contains_key(&a.id)
+                                && !self.in_flight_residuals.contains(&a.id)
+                        })
+                        .take(10)
+                        .cloned()
+                        .collect();
+
+                    if !missing.is_empty() {
+                        for a in &missing {
+                            self.in_flight_residuals.insert(a.id.clone());
+                        }
+                        Task::perform(discover_residuals_batch(missing), Message::ResidualsBatchLoaded)
+                    } else {
+                        Task::none()
+                    }
+                } else {
+                    Task::none()
+                }
             }
             Message::FilterCategory(cat) => {
                 self.category_filter = cat;
@@ -270,8 +323,26 @@ impl SweepXApp {
                 self.select_sort(field);
                 Task::none()
             }
+            Message::ToggleUnitSystem => {
+                self.unit_system = self.unit_system.toggle();
+                Task::none()
+            }
             Message::ToggleShowSystemLibraries(val) => {
                 self.show_system_libraries = val;
+                if val && !self.search_query.is_empty() {
+                    let missing: Vec<Application> = self.applications
+                        .iter()
+                        .filter(|a| !self.app_residuals_cache.contains_key(&a.id) && !self.in_flight_residuals.contains(&a.id))
+                        .take(50)
+                        .cloned()
+                        .collect();
+                    if !missing.is_empty() {
+                        for a in &missing {
+                            self.in_flight_residuals.insert(a.id.clone());
+                        }
+                        return Task::perform(discover_residuals_batch(missing), Message::ResidualsBatchLoaded);
+                    }
+                }
                 Task::none()
             }
             Message::OpenInspector(app) => {
@@ -302,6 +373,7 @@ impl SweepXApp {
                 self.clean_target = Some(app.clone());
                 self.clean_residuals.clear();
                 self.is_clean_loading = true;
+                self.purge_package = true;
                 Task::perform(
                     async move { discover_residuals_for_app(&app).await },
                     Message::CleanResidualsLoaded,
@@ -320,6 +392,10 @@ impl SweepXApp {
                 if let Some(item) = self.clean_residuals.get_mut(idx) {
                     item.1 = val;
                 }
+                Task::none()
+            }
+            Message::TogglePurgePackage(val) => {
+                self.purge_package = val;
                 Task::none()
             }
             Message::TogglePermanentDelete(val) => {
@@ -345,27 +421,48 @@ impl SweepXApp {
                     } else {
                         DeletionMode::Trash
                     };
+                    let purge_pkg = self.purge_package;
 
                     Task::perform(
                         async move {
                             // 1. Purge residuals
                             let res_report = execute_purge_residuals(&selected_residuals, del_mode).await;
 
-                            // 2. If app package purge supported, execute and verify
+                            // 2. If app package purge selected, execute and verify
                             let mut freed = res_report.freed_bytes;
-                            let pkg_success = match execute_purge_package(&app).await {
-                                Ok(_) => {
-                                    freed += app.total_size_bytes;
-                                    true
-                                }
-                                Err(e) => {
-                                    eprintln!("Package purge failed: {}", e);
-                                    false
-                                }
-                            };
-
                             let mut deleted_paths = res_report.deleted_paths;
                             deleted_paths.extend(res_report.trashed_paths);
+
+                            let pkg_success = if purge_pkg {
+                                match execute_purge_package(&app, del_mode).await {
+                                    Ok(_) => {
+                                        freed += app.total_size_bytes;
+                                        // Include the primary package executable, desktop launcher, and artifacts in deleted paths
+                                        if let Some(ref exec) = app.exec_path {
+                                            if !deleted_paths.contains(exec) {
+                                                deleted_paths.insert(0, exec.clone());
+                                            }
+                                        }
+                                        if let Some(ref desk) = app.desktop_file {
+                                            if !deleted_paths.contains(desk) {
+                                                deleted_paths.push(desk.clone());
+                                            }
+                                        }
+                                        for artifact in &app.artifacts {
+                                            if !deleted_paths.contains(&artifact.path) {
+                                                deleted_paths.push(artifact.path.clone());
+                                            }
+                                        }
+                                        true
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Package purge failed: {}", e);
+                                        false
+                                    }
+                                }
+                            } else {
+                                true
+                            };
 
                             let status = if pkg_success && res_report.errors.is_empty() {
                                 "success".to_string()
@@ -411,21 +508,34 @@ impl SweepXApp {
                     Ok(freed) => {
                         self.status_message = Some(format!(
                             "Successfully purged application files! Freed {}",
-                            format_size(freed)
+                            self.format_bytes(freed)
                         ));
                     }
                     Err(e) => {
                         self.status_message = Some(format!("Purge error: {}", e));
                     }
                 }
-                // Refresh list
-                Task::perform(scan_all_applications(), Message::ScanCompleted)
+                // Refresh list and reload audit history
+                Task::batch(vec![
+                    Task::perform(scan_all_applications(), Message::ScanCompleted),
+                    Task::perform(
+                        async {
+                            if let Ok(db) = Database::open_default() {
+                                db.get_audit_history().unwrap_or_default()
+                            } else {
+                                Vec::new()
+                            }
+                        },
+                        Message::AuditHistoryLoaded,
+                    ),
+                ])
             }
             Message::CloseCleanModal => {
                 self.clean_target = None;
                 self.clean_residuals.clear();
                 self.is_clean_loading = false;
                 self.is_cleaning = false;
+                self.purge_package = true;
                 Task::none()
             }
             Message::LoadSweepItems => {
@@ -460,6 +570,37 @@ impl SweepXApp {
                 Task::perform(
                     async move {
                         let report = execute_system_sweep(&selected_items).await;
+                        let mut deleted_paths = Vec::new();
+                        for item in &selected_items {
+                            deleted_paths.extend(item.paths.clone());
+                        }
+
+                        let entry = AuditLogEntry {
+                            id: None,
+                            app_id: "system-sweep".to_string(),
+                            app_name: "System Sweep & Maintenance".to_string(),
+                            install_method: "System".to_string(),
+                            timestamp: chrono::Utc::now(),
+                            freed_bytes: report.freed_bytes,
+                            deleted_paths,
+                            status: if report.errors.is_empty() {
+                                "SUCCESS".to_string()
+                            } else if report.items_cleaned > 0 {
+                                "PARTIAL".to_string()
+                            } else {
+                                "FAILED".to_string()
+                            },
+                            error_details: if !report.errors.is_empty() {
+                                Some(report.errors.join("; "))
+                            } else {
+                                None
+                            },
+                        };
+
+                        if let Ok(db) = Database::open_default() {
+                            let _ = db.record_audit(&entry);
+                        }
+
                         Ok((report.items_cleaned, report.freed_bytes))
                     },
                     Message::SystemSweepCompleted,
@@ -472,16 +613,28 @@ impl SweepXApp {
                         self.status_message = Some(format!(
                             "Cleaned {} system items! Reclaimed {}",
                             count,
-                            format_size(freed)
+                            self.format_bytes(freed)
                         ));
                     }
                     Err(e) => {
                         self.status_message = Some(format!("System sweep failed: {}", e));
                     }
                 }
-                // Refresh sweep items
+                // Refresh sweep items and reload audit history
                 self.is_sweep_scanning = true;
-                Task::perform(scan_all_sweep_items(), Message::SweepItemsLoaded)
+                Task::batch(vec![
+                    Task::perform(scan_all_sweep_items(), Message::SweepItemsLoaded),
+                    Task::perform(
+                        async {
+                            if let Ok(db) = Database::open_default() {
+                                db.get_audit_history().unwrap_or_default()
+                            } else {
+                                Vec::new()
+                            }
+                        },
+                        Message::AuditHistoryLoaded,
+                    ),
+                ])
             }
             Message::LoadAuditHistory => Task::perform(
                 async {
@@ -495,6 +648,14 @@ impl SweepXApp {
             ),
             Message::AuditHistoryLoaded(entries) => {
                 self.audit_history = entries;
+                Task::none()
+            }
+            Message::OpenAuditInspector(entry) => {
+                self.inspector_audit_entry = Some(entry);
+                Task::none()
+            }
+            Message::CloseAuditInspector => {
+                self.inspector_audit_entry = None;
                 Task::none()
             }
             Message::OpenFolder(path) => {
@@ -573,6 +734,10 @@ impl SweepXApp {
             return self.view_clean_overlay(base_view);
         }
 
+        if self.inspector_audit_entry.is_some() {
+            return self.view_audit_inspector_overlay(base_view);
+        }
+
         base_view
     }
 
@@ -612,12 +777,25 @@ impl SweepXApp {
             .spacing(6)
             .align_y(Alignment::Center),
             Space::new().width(Length::Fill),
-            button(
-                text(if self.is_scanning { "Scanning..." } else { "Refresh Scan" })
-                    .size(13)
-            )
-            .style(|_t, s| Theme::primary_button(s))
-            .on_press(Message::RefreshScan)
+            row![
+                button(
+                    text(if self.is_scanning { "Scanning..." } else { "Refresh Scan" })
+                        .size(13)
+                )
+                .style(|_t, s| Theme::primary_button(s))
+                .on_press(Message::RefreshScan),
+                button(
+                    row![
+                        text("Unit: ").size(12).color(Theme::TEXT_MUTED),
+                        text(self.unit_system.label()).size(12).color(Theme::PISTACHIO),
+                    ]
+                    .align_y(Alignment::Center)
+                )
+                .style(|_t, s| Theme::header_toggle_button(s))
+                .on_press(Message::ToggleUnitSystem),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center)
         ]
         .align_y(Alignment::Center)
         .padding(12);
@@ -691,13 +869,7 @@ impl SweepXApp {
         let total_apps = visible_for_stats.len();
         let total_footprint_bytes: u64 = visible_for_stats
             .iter()
-            .map(|a| {
-                if let Some(res) = self.app_residuals_cache.get(&a.id) {
-                    a.total_size_bytes + res
-                } else {
-                    a.known_footprint_bytes()
-                }
-            })
+            .map(|a| a.total_size_bytes)
             .sum();
         let flatpak_count = visible_for_stats
             .iter()
@@ -728,7 +900,7 @@ impl SweepXApp {
                 },
                 Theme::CARD_TEXT_PRIMARY,
             ),
-            self.metric_card("Storage Footprint", format_size(total_footprint_bytes), "Discovered package footprint", Theme::CARD_TEXT_PRIMARY),
+            self.metric_card("Storage Footprint", self.format_bytes(total_footprint_bytes), "Discovered package footprint", Theme::CARD_TEXT_PRIMARY),
             self.metric_card("Native Packages", native_count.to_string(), "APT / DNF / Pacman & Desktop", Theme::CARD_TEXT_PRIMARY),
             self.metric_card("Sandboxed Containers", format!("{} / {}", flatpak_count, snap_count), "Flatpak apps / Snap packages", Theme::CARD_TEXT_PRIMARY),
             self.metric_card("Bottles Wine Apps", bottles_count.to_string(), "Isolated Windows prefixes", Theme::CARD_TEXT_PRIMARY),
@@ -902,14 +1074,14 @@ impl SweepXApp {
         let size_pills = row![
             column![
                 text("Payload").size(10).color(Theme::CARD_TEXT_MUTED),
-                text(format_size(app.total_size_bytes))
+                text(self.format_bytes(app.total_size_bytes))
                     .size(13)
                     .color(Theme::CARD_TEXT_PRIMARY),
             ]
             .align_x(Alignment::End),
             column![
                 text("Total Footprint").size(10).color(Theme::CARD_TEXT_MUTED),
-                text(format_size(total_footprint))
+                text(self.format_bytes(total_footprint))
                     .size(13)
                     .color(Theme::CARD_TEXT_PRIMARY),
             ]
@@ -931,11 +1103,11 @@ impl SweepXApp {
         .align_y(Alignment::Center);
 
         let card_content = row![
-            app_details.width(Length::FillPortion(5)),
-            size_pills.width(Length::FillPortion(3)),
-            actions.width(Length::FillPortion(2)),
+            app_details.width(Length::Fill),
+            size_pills.width(Length::Shrink),
+            actions.width(Length::Shrink),
         ]
-        .spacing(12)
+        .spacing(16)
         .align_y(Alignment::Center)
         .padding(12);
 
@@ -1001,13 +1173,16 @@ impl SweepXApp {
         let header = row![
             column![
                 row![
-                    text(format!("Application Inspector — {}", app.display_name))
-                        .size(20)
-                        .color(Theme::WARM_CREAM),
+                    text("Application Inspector")
+                        .size(13)
+                        .color(Theme::PISTACHIO),
                     Theme::method_badge(app.install_method),
                 ]
-                .spacing(10)
+                .spacing(8)
                 .align_y(Alignment::Center),
+                text(&app.display_name)
+                    .size(20)
+                    .color(Theme::WARM_CREAM),
                 row![
                     text_input("", &app.id)
                         .size(12)
@@ -1019,30 +1194,30 @@ impl SweepXApp {
                 .spacing(8)
                 .align_y(Alignment::Center),
             ]
-            .spacing(2),
+            .spacing(4),
             Space::new().width(Length::Fill),
             button(text("Close").size(13))
                 .style(|_t, s| Theme::secondary_button(s))
                 .on_press(Message::CloseInspector)
         ]
-        .align_y(Alignment::Center);
+        .align_y(Alignment::Start);
 
         // Footprint accounting summary box
         let accounting_box = container(
             row![
                 column![
                     text("Base App Payload").size(11).color(Theme::TEXT_MUTED),
-                    text(format_size(app.total_size_bytes)).size(16).color(Theme::WARM_CREAM),
+                    text(self.format_bytes(app.total_size_bytes)).size(16).color(Theme::WARM_CREAM),
                 ].width(Length::Fill),
                 text("+").size(16).color(Theme::OLIVE_SAGE),
                 column![
                     text("Discovered User Caches/Data").size(11).color(Theme::TEXT_MUTED),
-                    text(format_size(residuals_size)).size(16).color(Theme::OLIVE_SAGE),
+                    text(self.format_bytes(residuals_size)).size(16).color(Theme::OLIVE_SAGE),
                 ].width(Length::Fill),
                 text("=").size(16).color(Theme::OLIVE_SAGE),
                 column![
                     text("Total Combined Footprint").size(11).color(Theme::TEXT_MUTED),
-                    text(format_size(total_combined_footprint)).size(18).color(Theme::WARM_CREAM),
+                    text(self.format_bytes(total_combined_footprint)).size(18).color(Theme::WARM_CREAM),
                 ].width(Length::Fill),
             ]
             .spacing(12)
@@ -1073,7 +1248,7 @@ impl SweepXApp {
                             .size(13)
                             .style(|_t, s| Theme::selectable_text(s)),
                     ].width(Length::Fill),
-                    text(format_size(app.total_size_bytes)).size(13).color(Theme::WARM_CREAM),
+                    text(self.format_bytes(app.total_size_bytes)).size(13).color(Theme::WARM_CREAM),
                     button(text("Copy").size(11))
                         .style(|_t, s| Theme::secondary_button(s))
                         .on_press(Message::CopyToClipboard(bin_str)),
@@ -1140,7 +1315,7 @@ impl SweepXApp {
                             .style(|_t, s| Theme::selectable_text(s)),
                     ]
                     .width(Length::Fill),
-                    text(format_size(res.size_bytes)).size(13).color(Theme::WARM_CREAM),
+                    text(self.format_bytes(res.size_bytes)).size(13).color(Theme::WARM_CREAM),
                     button(text("Copy").size(11))
                         .style(|_t, s| Theme::secondary_button(s))
                         .on_press(Message::CopyToClipboard(path_str)),
@@ -1207,24 +1382,38 @@ impl SweepXApp {
             .map(|(r, _)| r.size_bytes)
             .sum();
 
-        let total_reclaimable = selected_residuals_bytes + app.total_size_bytes;
+        let package_bytes = if self.purge_package {
+            app.total_size_bytes
+        } else {
+            0
+        };
+
+        let total_reclaimable = selected_residuals_bytes + package_bytes;
 
         let header = row![
             column![
-                text(format!("Purge Application — {}", app.display_name))
+                row![
+                    text("Purge Application")
+                        .size(13)
+                        .color(Theme::PISTACHIO),
+                    Theme::method_badge(app.install_method),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+                text(&app.display_name)
                     .size(20)
                     .color(Theme::WARM_CREAM),
-                text("Select discovered user files and caches to safely remove.")
+                text("Select discovered application package payloads and user caches to safely remove.")
                     .size(12)
-                    .color(Theme::OLIVE_SAGE),
+                    .color(Theme::TEXT_MUTED),
             ]
-            .spacing(2),
+            .spacing(4),
             Space::new().width(Length::Fill),
             button(text("Cancel").size(13))
                 .style(|_t, s| Theme::secondary_button(s))
                 .on_press(Message::CloseCleanModal)
         ]
-        .align_y(Alignment::Center);
+        .align_y(Alignment::Start);
 
         // Summary banner
         let summary_banner = container(
@@ -1233,7 +1422,7 @@ impl SweepXApp {
                     text("Estimated Reclaimable Disk Space")
                         .size(11)
                         .color(Theme::TEXT_MUTED),
-                    text(format_size(total_reclaimable))
+                    text(self.format_bytes(total_reclaimable))
                         .size(20)
                         .color(Theme::WARM_CREAM),
                 ]
@@ -1261,9 +1450,69 @@ impl SweepXApp {
         .style(|_t| Theme::modal_inset_card_style())
         .width(Length::Fill);
 
-        // Residual items checklist
+        // Section 1: Application Binary & Primary Package Payload
+        let package_label = match app.install_method {
+            InstallMethod::Flatpak => "Flatpak Application Package (system / user uninstall)",
+            InstallMethod::Snap => "Snap Application Package (snap remove --purge)",
+            InstallMethod::NativeDnf => "DNF System Package (dnf remove)",
+            InstallMethod::NativeApt => "APT System Package (apt purge)",
+            InstallMethod::NativePacman => "Pacman System Package (pacman -Rns)",
+            InstallMethod::AppImage => "AppImage Application Executable Binary",
+            InstallMethod::Bottles => "Wine Bottle Prefix & Application Directory",
+            InstallMethod::ManualOpt => "Manual Installation Payload Directory (/opt or user bin)",
+            InstallMethod::CustomDesktop => "Application Binary & Desktop Launcher",
+        };
+
+        let package_target_str = if let Some(ref exec) = app.exec_path {
+            exec.to_string_lossy().to_string()
+        } else {
+            app.id.clone()
+        };
+        let package_target_copy = package_target_str.clone();
+
+        let package_section = column![
+            row![
+                text("Application Binary & Primary Package Payload")
+                    .size(14)
+                    .color(Theme::WARM_CREAM),
+                Theme::method_badge(app.install_method),
+            ]
+            .spacing(8)
+            .align_y(Alignment::Center),
+            container(
+                row![
+                    checkbox(self.purge_package)
+                        .on_toggle(Message::TogglePurgePackage)
+                        .size(13),
+                    column![
+                        text(package_label).size(12).color(Theme::OLIVE_SAGE),
+                        text_input("", &package_target_str)
+                            .size(12)
+                            .style(|_t, s| Theme::selectable_text(s)),
+                    ]
+                    .spacing(2)
+                    .width(Length::Fill),
+                    text(format!("({})", self.format_bytes(app.total_size_bytes)))
+                        .size(12)
+                        .color(Theme::WARM_CREAM),
+                    button(text("Copy").size(10))
+                        .style(|_t, s| Theme::ghost_button(false, s))
+                        .on_press(Message::CopyToClipboard(package_target_copy)),
+                ]
+                .spacing(10)
+                .align_y(Alignment::Center)
+                .padding(8)
+            )
+            .style(|_t| Theme::modal_inset_card_style())
+            .width(Length::Fill),
+        ]
+        .spacing(8);
+
+        // Section 2: Discovered Residuals & Artifacts
         let mut items_col = column![
-            text("Discovered Residuals & Artifacts").size(14).color(Theme::WARM_CREAM),
+            text(format!("Discovered User Residuals & Sandboxes ({})", self.clean_residuals.len()))
+                .size(14)
+                .color(Theme::WARM_CREAM),
         ]
         .spacing(8);
 
@@ -1273,27 +1522,35 @@ impl SweepXApp {
             );
         } else if self.clean_residuals.is_empty() {
             items_col = items_col.push(
-                text("No additional user caches discovered. Only package uninstall will execute.")
-                    .size(13)
-                    .color(Theme::TEXT_MUTED)
+                container(
+                    text("No additional user caches discovered outside base package payload.")
+                        .size(13)
+                        .color(Theme::TEXT_MUTED)
+                )
+                .padding(8)
             );
         } else {
             for (idx, (res, checked)) in self.clean_residuals.iter().enumerate() {
                 let path_str = res.path.to_string_lossy().to_string();
+                let path_str_copy = path_str.clone();
                 let check_row = row![
                     checkbox(*checked)
                         .on_toggle(move |val| Message::ToggleCleanResidual(idx, val))
                         .size(13),
-                    text(format!("{}:", res.kind.display_name())).size(12).color(Theme::OLIVE_SAGE),
-                    text_input("", &path_str)
-                        .size(12)
-                        .style(|_t, s| Theme::selectable_text(s)),
-                    text(format!("({})", format_size(res.size_bytes)))
+                    column![
+                        text(format!("{}:", res.kind.display_name())).size(11).color(Theme::OLIVE_SAGE),
+                        text_input("", &path_str)
+                            .size(12)
+                            .style(|_t, s| Theme::selectable_text(s)),
+                    ]
+                    .spacing(2)
+                    .width(Length::Fill),
+                    text(format!("({})", self.format_bytes(res.size_bytes)))
                         .size(11)
                         .color(Theme::TEXT_MUTED),
                     button(text("Copy").size(10))
                         .style(|_t, s| Theme::ghost_button(false, s))
-                        .on_press(Message::CopyToClipboard(path_str)),
+                        .on_press(Message::CopyToClipboard(path_str_copy)),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center);
@@ -1322,13 +1579,19 @@ impl SweepXApp {
         .spacing(12)
         .align_y(Alignment::Center);
 
+        let checklist_content = column![
+            package_section,
+            items_col,
+        ]
+        .spacing(12);
+
         let modal_body = column![
             header,
             summary_banner,
-            scrollable(items_col)
+            scrollable(checklist_content)
                 .direction(Theme::scrollbar_direction())
                 .style(Theme::modal_scrollable_style)
-                .height(Length::Fixed(240.0)),
+                .height(Length::Fixed(280.0)),
             action_buttons,
         ]
         .spacing(14)
@@ -1336,7 +1599,7 @@ impl SweepXApp {
 
         let modal_container = container(modal_body)
             .style(|_t| Theme::modal_style())
-            .width(Length::Fixed(720.0));
+            .width(Length::Fixed(820.0));
 
         let backdrop = container(modal_container)
             .width(Length::Fill)
@@ -1391,7 +1654,7 @@ impl SweepXApp {
                     text("Total Selected Reclaimable Disk Space")
                         .size(11)
                         .color(Theme::CARD_TEXT_MUTED),
-                    text(format_size(total_reclaimable))
+                    text(self.format_bytes(total_reclaimable))
                         .size(24)
                         .color(Theme::CARD_TEXT_PRIMARY),
                 ]
@@ -1448,7 +1711,7 @@ impl SweepXApp {
                         text(&item.description).size(12).color(Theme::CARD_TEXT_MUTED),
                     ]
                     .width(Length::Fill),
-                    text(format_size(item.reclaimable_bytes))
+                    text(self.format_bytes(item.reclaimable_bytes))
                         .size(14)
                         .color(Theme::CARD_TEXT_PRIMARY),
                 ]
@@ -1512,7 +1775,8 @@ impl SweepXApp {
         } else {
             for entry in &self.audit_history {
                 let date_str = entry.timestamp.format("%Y-%m-%d %H:%M:%S UTC").to_string();
-                let status_color = if entry.status == "SUCCESS" {
+                let status_upper = entry.status.to_uppercase();
+                let status_color = if status_upper == "SUCCESS" {
                     Theme::OLIVE_SAGE
                 } else {
                     Theme::DANGER
@@ -1533,14 +1797,17 @@ impl SweepXApp {
                     ]
                     .width(Length::Fill),
                     column![
-                        text(&entry.status).size(12).color(status_color),
-                        text(format!("+{}", format_size(entry.freed_bytes)))
+                        text(status_upper).size(12).color(status_color),
+                        text(format!("+{}", self.format_bytes(entry.freed_bytes)))
                             .size(15)
                             .color(Theme::CARD_TEXT_PRIMARY),
                     ]
                     .align_x(Alignment::End),
+                    button(text("Inspect").size(12))
+                        .style(|_t, s| Theme::primary_button(s))
+                        .on_press(Message::OpenAuditInspector(entry.clone())),
                 ]
-                .spacing(12)
+                .spacing(16)
                 .align_y(Alignment::Center)
                 .padding(12);
 
@@ -1563,6 +1830,187 @@ impl SweepXApp {
         .height(Length::Fill)
         .into()
     }
+
+    // ==========================================
+    // AUDIT LOG INSPECTOR MODAL VIEW
+    // ==========================================
+    fn view_audit_inspector_overlay<'a>(&'a self, underlay: Element<'a, Message>) -> Element<'a, Message> {
+        let entry = match self.inspector_audit_entry {
+            Some(ref e) => e,
+            None => return underlay,
+        };
+
+        let status_upper = entry.status.to_uppercase();
+        let status_color = if status_upper == "SUCCESS" {
+            Theme::OLIVE_SAGE
+        } else {
+            Theme::DANGER
+        };
+        let date_str = entry.timestamp.format("%Y-%m-%d %H:%M:%S UTC").to_string();
+
+        let header = row![
+            column![
+                row![
+                    text("Audit Record Inspector")
+                        .size(13)
+                        .color(Theme::PISTACHIO),
+                    Theme::badge_by_label(&entry.install_method),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+                text(&entry.app_name)
+                    .size(20)
+                    .color(Theme::WARM_CREAM),
+                row![
+                    text_input("", &entry.app_id)
+                        .size(12)
+                        .style(|_t, s| Theme::selectable_text(s)),
+                    button(text("Copy ID").size(10))
+                        .style(|_t, s| Theme::ghost_button(false, s))
+                        .on_press(Message::CopyToClipboard(entry.app_id.clone())),
+                    text(format!("Executed: {}", date_str))
+                        .size(11)
+                        .color(Theme::TEXT_MUTED),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            ]
+            .spacing(4),
+            Space::new().width(Length::Fill),
+            button(text("Close").size(13))
+                .style(|_t, s| Theme::secondary_button(s))
+                .on_press(Message::CloseAuditInspector)
+        ]
+        .align_y(Alignment::Start);
+
+        // Accounting summary box
+        let accounting_box = container(
+            row![
+                column![
+                    text("Reclaimed Space").size(11).color(Theme::TEXT_MUTED),
+                    text(format!("+{}", self.format_bytes(entry.freed_bytes))).size(16).color(Theme::WARM_CREAM),
+                ].width(Length::Fill),
+                text("•").size(16).color(Theme::OLIVE_SAGE),
+                column![
+                    text("Operation Status").size(11).color(Theme::TEXT_MUTED),
+                    text(status_upper).size(16).color(status_color),
+                ].width(Length::Fill),
+                text("•").size(16).color(Theme::OLIVE_SAGE),
+                column![
+                    text("Deleted Targets").size(11).color(Theme::TEXT_MUTED),
+                    text(format!("{} paths", entry.deleted_paths.len())).size(16).color(Theme::OLIVE_SAGE),
+                ].width(Length::Fill),
+            ]
+            .spacing(12)
+            .align_y(Alignment::Center)
+            .padding(12),
+        )
+        .style(|_t| Theme::modal_inset_card_style())
+        .width(Length::Fill);
+
+        // Deleted paths list section
+        let mut paths_col = column![
+            text(format!("Purged File & Directory Paths ({})", entry.deleted_paths.len()))
+                .size(15)
+                .color(Theme::WARM_CREAM),
+        ]
+        .spacing(8);
+
+        if let Some(ref err) = entry.error_details {
+            paths_col = paths_col.push(
+                container(
+                    column![
+                        text("Recorded Error / Warning Details")
+                            .size(11)
+                            .color(Theme::DANGER),
+                        text(err)
+                            .size(12)
+                            .color(Theme::WARM_CREAM),
+                    ]
+                    .spacing(4)
+                )
+                .padding(10)
+                .style(|_t| Theme::modal_inset_card_style())
+                .width(Length::Fill),
+            );
+        }
+
+        if entry.deleted_paths.is_empty() {
+            paths_col = paths_col.push(
+                container(
+                    text("No individual file paths were recorded for this operation (e.g. uninstalled via system package manager).")
+                        .size(13)
+                        .color(Theme::TEXT_MUTED),
+                )
+                .padding(12)
+            );
+        } else {
+            let max_display = 100;
+            for path in entry.deleted_paths.iter().take(max_display) {
+                let path_str = path.to_string_lossy().to_string();
+                let path_str_copy = path_str.clone();
+
+                let path_row = row![
+                    text_input("", &path_str)
+                        .size(12)
+                        .style(|_t, s| Theme::selectable_text(s)),
+                    button(text("Copy").size(11))
+                        .style(|_t, s| Theme::secondary_button(s))
+                        .on_press(Message::CopyToClipboard(path_str_copy)),
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center)
+                .padding(6);
+
+                paths_col = paths_col.push(
+                    container(path_row)
+                        .style(|_t| Theme::modal_inset_card_style())
+                        .width(Length::Fill),
+                );
+            }
+
+            if entry.deleted_paths.len() > max_display {
+                let remaining = entry.deleted_paths.len() - max_display;
+                paths_col = paths_col.push(
+                    container(
+                        text(format!("... and {} more recorded paths (total {})", remaining, entry.deleted_paths.len()))
+                            .size(12)
+                            .color(Theme::TEXT_MUTED)
+                    )
+                    .padding(8)
+                );
+            }
+        }
+
+        let modal_body = column![
+            header,
+            accounting_box,
+            paths_col,
+        ]
+        .spacing(14)
+        .padding(20);
+
+        let modal_container = container(
+            scrollable(modal_body)
+                .direction(Theme::scrollbar_direction())
+                .style(Theme::modal_scrollable_style),
+        )
+        .style(|_t| Theme::modal_style())
+        .width(Length::Fixed(850.0))
+        .max_height(600);
+
+        let backdrop = container(modal_container)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .style(|_t| container::Style {
+                background: Some(iced::Background::Color(iced::Color::from_rgba(0.0, 0.0, 0.0, 0.70))),
+                ..Default::default()
+            });
+
+        stack![underlay, backdrop].into()
+    }
 }
 
 pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
@@ -1578,4 +2026,29 @@ pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
         })
         .run()?;
     Ok(())
+}
+
+/// Asynchronously calculates total residual footprints in parallel across a batch of applications.
+async fn discover_residuals_batch(apps: Vec<Application>) -> Vec<(String, u64)> {
+    use std::sync::Arc;
+    use tokio::sync::Semaphore;
+
+    let semaphore = Arc::new(Semaphore::new(16));
+    let mut handles = Vec::with_capacity(apps.len());
+    for app in apps {
+        let sem = semaphore.clone();
+        handles.push(tokio::spawn(async move {
+            let _permit = sem.acquire().await;
+            let res = discover_residuals_for_app(&app).await;
+            let sum: u64 = res.iter().map(|r| r.size_bytes).sum();
+            (app.id, sum)
+        }));
+    }
+    let mut results = Vec::with_capacity(handles.len());
+    for handle in handles {
+        if let Ok(res) = handle.await {
+            results.push(res);
+        }
+    }
+    results
 }

@@ -46,3 +46,47 @@ fn test_select_best_asset_fallback_to_raw_binary() {
     assert_eq!(selected.name, "sweepx");
 }
 
+#[test]
+fn test_install_assets_to_refreshes_branding_and_cleans_legacy_pngs() {
+    use sweepx::updater::install_assets_to;
+    use tempfile::tempdir;
+
+    let tmp = tempdir().expect("Failed to create tempdir");
+    let home = tmp.path();
+
+    // 1. Create a stale legacy PNG icon that should be cleaned up
+    let stale_png = home.join(".local/share/icons/sweepx.png");
+    if let Some(parent) = stale_png.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(&stale_png, "stale png mock bytes").unwrap();
+    assert!(stale_png.exists());
+
+    // 2. Run install_assets_to
+    let res = install_assets_to(home);
+    assert!(res.is_ok(), "install_assets_to should succeed: {:?}", res);
+
+    // 3. Verify scalable SVG icon is written
+    let svg_icon = home.join(".local/share/icons/hicolor/scalable/apps/sweepx.svg");
+    assert!(svg_icon.exists(), "Scalable SVG icon must exist");
+    let svg_content = std::fs::read_to_string(&svg_icon).unwrap();
+    assert!(svg_content.contains("<svg"), "Must contain valid SVG XML");
+    assert!(svg_content.contains("title-app-icon"), "Must contain brand SVG content");
+
+    // 4. Verify hicolor index.theme was created
+    let index_theme = home.join(".local/share/icons/hicolor/index.theme");
+    assert!(index_theme.exists(), "hicolor/index.theme must exist for icon cache tools");
+
+    // 5. Verify stale legacy PNG was removed
+    assert!(!stale_png.exists(), "Stale PNG icon must be deleted");
+
+    // 6. Verify desktop entry was written
+    let desktop_file = home.join(".local/share/applications/sweepx.desktop");
+    assert!(desktop_file.exists(), "sweepx.desktop launcher must be created");
+    let desktop_content = std::fs::read_to_string(&desktop_file).unwrap();
+    assert!(desktop_content.contains("[Desktop Entry]"));
+    assert!(desktop_content.contains("Name=SweepX"));
+    assert!(desktop_content.contains("Icon="));
+}
+
+

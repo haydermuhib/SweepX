@@ -50,5 +50,7 @@ jobs:
           files: |
             sweepx-${{ matrix.target }}.tar.gz
             sweepx
+            install.sh
+            assets/icons/sweepx.svg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

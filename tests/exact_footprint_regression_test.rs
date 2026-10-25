@@ -111,3 +111,136 @@ Type=Application
 
     assert_eq!(app.install_method, InstallMethod::Bottles);
 }
+
+#[test]
+fn test_storage_footprint_metric_stability_across_repeated_refreshes_and_mutations() {
+    use sweepx::models::{format_size_with_unit, SizeUnitSystem};
+    use sweepx::ui::{Message, NavigationTab, SweepXApp};
+
+    let (mut app_state, _init_task) = SweepXApp::new();
+
+    let mut app1 = Application::new("code", "Visual Studio Code", InstallMethod::NativeApt);
+    app1.total_size_bytes = 900 * 1024 * 1024; // 900 MiB
+    let mut app2 = Application::new("spotify", "Spotify", InstallMethod::Flatpak);
+    app2.total_size_bytes = 150 * 1024 * 1024; // 150 MiB
+    let mut app3 = Application::new("firefox", "Firefox", InstallMethod::NativeApt);
+    app3.total_size_bytes = 200 * 1024 * 1024; // 200 MiB
+    let mut app4 = Application::new("vlc", "VLC", InstallMethod::Flatpak);
+    app4.total_size_bytes = 80 * 1024 * 1024; // 80 MiB
+    let mut app5 = Application::new("gimp", "GIMP", InstallMethod::NativeApt);
+    app5.total_size_bytes = 100 * 1024 * 1024; // 100 MiB
+
+    let test_apps = vec![app1, app2, app3, app4, app5];
+    let expected_base_bytes: u64 = 1430 * 1024 * 1024; // 1,499,463,680 bytes = 1.40 GiB
+
+    // 1. First scan completed
+    let _ = app_state.update(Message::ScanCompleted(test_apps.clone()));
+    let visible_sum: u64 = app_state.applications.iter().filter(|a| !a.is_system).map(|a| a.total_size_bytes).sum();
+    assert_eq!(visible_sum, expected_base_bytes);
+    assert_eq!(app_state.format_bytes(visible_sum), "1.40 GiB");
+
+    // 2. Simulate inspecting apps and populating residual cache with 500 MiB + 300 MiB
+    app_state.app_residuals_cache.insert("code".to_string(), 500 * 1024 * 1024);
+    app_state.app_residuals_cache.insert("firefox".to_string(), 300 * 1024 * 1024);
+
+    // 3. User performs search and switches tabs
+    let _ = app_state.update(Message::SearchChanged("code".to_string()));
+    let _ = app_state.update(Message::SwitchTab(NavigationTab::SystemSweep));
+    let _ = app_state.update(Message::SwitchTab(NavigationTab::Applications));
+    let _ = app_state.update(Message::SearchChanged("".to_string()));
+
+    // 4. Repeated scan completed events (simulating Refresh Scan clicks)
+    for _ in 0..5 {
+        let _ = app_state.update(Message::ScanCompleted(test_apps.clone()));
+    }
+
+    // Contract: The headline storage footprint MUST remain constant and deterministic
+    let current_sum: u64 = app_state.applications.iter().filter(|a| !a.is_system).map(|a| a.total_size_bytes).sum();
+    assert_eq!(current_sum, expected_base_bytes);
+    assert_eq!(app_state.format_bytes(current_sum), "1.40 GiB");
+
+    // 5. Toggle unit system to GB
+    let _ = app_state.update(Message::ToggleUnitSystem);
+    assert_eq!(app_state.unit_system, SizeUnitSystem::GB);
+    // 1,499,463,680 bytes in decimal GB is 1.50 GB (1,499,463,680 / 10^9 = 1.499... => "1.50 GB")
+    assert_eq!(app_state.format_bytes(current_sum), "1.50 GB");
+    assert_eq!(format_size_with_unit(current_sum, SizeUnitSystem::GB), "1.50 GB");
+
+    // 6. Toggle back to GiB
+    let _ = app_state.update(Message::ToggleUnitSystem);
+    assert_eq!(app_state.unit_system, SizeUnitSystem::GiB);
+    assert_eq!(app_state.format_bytes(current_sum), "1.40 GiB");
+}
+
+#[test]
+fn test_size_unit_system_strict_boundaries_and_toggle() {
+    use sweepx::models::{format_size_with_unit, SizeUnitSystem};
+
+    // Sub-kilobyte exact behavior
+    assert_eq!(format_size_with_unit(0, SizeUnitSystem::GiB), "0 B");
+    assert_eq!(format_size_with_unit(0, SizeUnitSystem::GB), "0 B");
+    assert_eq!(format_size_with_unit(500, SizeUnitSystem::GiB), "500 B");
+    assert_eq!(format_size_with_unit(500, SizeUnitSystem::GB), "500 B");
+    assert_eq!(format_size_with_unit(1023, SizeUnitSystem::GiB), "1023 B");
+    assert_eq!(format_size_with_unit(999, SizeUnitSystem::GB), "999 B");
+
+    // KiB (1024) vs KB (1000) boundary
+    assert_eq!(format_size_with_unit(1024, SizeUnitSystem::GiB), "1.0 KiB");
+    assert_eq!(format_size_with_unit(1000, SizeUnitSystem::GB), "1.0 KB");
+    assert_eq!(format_size_with_unit(1024, SizeUnitSystem::GB), "1.0 KB");
+
+    // MiB (1024^2 = 1,048,576) vs MB (1000^2 = 1,000,000) boundary
+    assert_eq!(format_size_with_unit(1_048_576, SizeUnitSystem::GiB), "1.0 MiB");
+    assert_eq!(format_size_with_unit(1_000_000, SizeUnitSystem::GB), "1.0 MB");
+    assert_eq!(format_size_with_unit(1_048_576, SizeUnitSystem::GB), "1.0 MB");
+
+    // GiB (1024^3) vs GB (1000^3) boundary - Crucial explanation of 48-49 vs 51-52 GB
+    let test_48_gib = 48 * 1024 * 1024 * 1024u64; // 51,539,607,552 bytes
+    assert_eq!(format_size_with_unit(test_48_gib, SizeUnitSystem::GiB), "48.00 GiB");
+    assert_eq!(format_size_with_unit(test_48_gib, SizeUnitSystem::GB), "51.54 GB");
+
+    let test_50_gib = 50 * 1024 * 1024 * 1024u64; // 53,687,091,200 bytes
+    assert_eq!(format_size_with_unit(test_50_gib, SizeUnitSystem::GiB), "50.00 GiB");
+    assert_eq!(format_size_with_unit(test_50_gib, SizeUnitSystem::GB), "53.69 GB");
+
+    // TiB vs TB boundary
+    let test_2_tib = 2 * 1024 * 1024 * 1024 * 1024u64; // 2,199,023,255,552 bytes
+    assert_eq!(format_size_with_unit(test_2_tib, SizeUnitSystem::GiB), "2.00 TiB");
+    assert_eq!(format_size_with_unit(test_2_tib, SizeUnitSystem::GB), "2.20 TB");
+
+    // Involution invariant: toggle twice returns original
+    assert_eq!(SizeUnitSystem::GiB.toggle().toggle(), SizeUnitSystem::GiB);
+    assert_eq!(SizeUnitSystem::GB.toggle().toggle(), SizeUnitSystem::GB);
+
+    // Labels
+    assert_eq!(SizeUnitSystem::GiB.label(), "GiB (1024)");
+    assert_eq!(SizeUnitSystem::GB.label(), "GB (1000)");
+}
+
+#[test]
+fn test_startup_and_refresh_do_not_dispatch_blanket_residual_scans() {
+    use sweepx::ui::{Message, SweepXApp};
+
+    let (mut app_state, _init_task) = SweepXApp::new();
+
+    // Generate 60 test applications
+    let apps: Vec<Application> = (0..60)
+        .map(|i| {
+            let mut a = Application::new(format!("app-{}", i), format!("App {}", i), InstallMethod::NativeApt);
+            a.total_size_bytes = 10 * 1024 * 1024;
+            a
+        })
+        .collect();
+
+    // Contract: ScanCompleted must not enqueue unconstrained residual crawling
+    let _task = app_state.update(Message::ScanCompleted(apps));
+
+    // in_flight_residuals MUST remain empty on scan completed
+    assert!(
+        app_state.in_flight_residuals.is_empty(),
+        "Startup / scan refresh must not insert apps into in_flight_residuals"
+    );
+    assert_eq!(app_state.applications.len(), 60);
+    assert!(!app_state.is_scanning);
+}
+

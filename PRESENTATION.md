@@ -41,8 +41,8 @@ SweepX uses an asynchronous orchestrator ([`src/scanner/orchestrator.rs`](src/sc
 <details>
 <summary><b>⚡ Pipeline Execution Details</b></summary>
 
-- Asynchronous execution: Spawns non-blocking tasks via Tokio.
-- Native deduplication: Merges `.desktop` launchers with underlying native packages using binary paths, package IDs, and name matching.
+- Asynchronous execution: Spawns non-blocking tasks via Tokio across all packaging tiers.
+- Multi-tier deduplication: Merges `.desktop` launchers with underlying native packages, prevents duplicate manual wrappers, and protects container packages (such as Snap `snapd`) from native package collisions.
 - Scan performance: Indexes 1,000+ installed applications across all tiers in under 150 ms.
 
 </details>
@@ -61,7 +61,7 @@ SweepX discovers installed software across multiple packaging systems:
 | **Flatpak** | [`src/scanner/flatpak.rs`](src/scanner/flatpak.rs) | `flatpak list --app --columns=...`, `~/.local/share/flatpak` |
 | **Snap** | [`src/scanner/snap.rs`](src/scanner/snap.rs) | `snap list`, `/var/lib/snapd/desktop/applications` |
 | **AppImage** | [`src/scanner/appimage.rs`](src/scanner/appimage.rs) | `~/Applications`, `~/.local/bin`, `~/bin`, magic bytes `0x41 0x49 0x02` |
-| **Manual /opt** | [`src/scanner/manual.rs`](src/scanner/manual.rs) | `/opt/*`, `~/.local/bin/*` with `rpm -qf`, `dpkg -S`, or `pacman -Qo` ownership checks |
+| **Manual and PATH Tools** | [`src/scanner/manual.rs`](src/scanner/manual.rs) | `/opt/*`, user-space `$PATH` directories (`~/.pixi/bin`, `~/.spicetify`, `~/.cargo/bin`, `~/.local/bin`), with package ownership and executable verification |
 | **Desktop Launchers** | [`src/scanner/desktop_entry.rs`](src/scanner/desktop_entry.rs) | `~/.local/share/applications`, `/usr/share/applications` |
 
 <details>
@@ -70,7 +70,8 @@ SweepX discovers installed software across multiple packaging systems:
 - Application Name and Description: Read from package headers or `.desktop` files.
 - Icon Paths: Resolves system icons, scalable SVGs in `~/.local/share/icons/`, and pixmaps.
 - Binary Location: Resolves executable paths through `PATH` lookups and symlink dereferencing.
-- Storage Footprint: Measures package manager reported size and physical payload directory size.
+- Storage Footprint: Measures package manager reported size and physical payload directory size, supporting both GiB (binary) and GB (decimal) units.
+- Artifact Scoping: Isolates manual tools to single executable binaries, protecting user data and configuration folders from accidental deletion.
 
 </details>
 
@@ -150,7 +151,7 @@ const PROTECTED_SYSTEM_DIRS: &[&str] = &[
 
 ## 5. Transparent Footprint Accounting & Hardware-Accelerated Iced UI
 
-SweepX computes storage footprints using exact addition in [`src/ui/views/inspector.rs`](src/ui/views/inspector.rs) and renders them through a custom hardware-accelerated GUI built with **Iced 0.13**:
+SweepX computes storage footprints using deterministic addition in [`src/ui/views/inspector.rs`](src/ui/views/inspector.rs) and renders them through a custom GUI built with **Iced 0.13**:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -162,6 +163,7 @@ SweepX computes storage footprints using exact addition in [`src/ui/views/inspec
 │     • Cache Data (~/.cache): 4.09 GB                        │
 ├─────────────────────────────────────────────────────────────┤
 │  📊 Total Footprint = 433.7 MB + 5.10 GB + 4.09 GB = 9.62 GB│
+│     Supports reactive GiB (base-1024) / GB (base-1000) toggle│
 └─────────────────────────────────────────────────────────────┘
 ```
 

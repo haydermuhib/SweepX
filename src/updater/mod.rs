@@ -265,61 +265,118 @@ pub async fn perform_self_update_with_progress(
         let _ = std::fs::remove_file(&temp_download);
     }
 
-    // Refresh application icon across standard directories, update desktop entry, and invalidate icon caches
-    let _ = update_installed_assets();
+    // Refresh application icon across standard directories, update desktop entry, and invalidate icon caches.
+    // Execute the newly installed binary so it extracts and installs ITS newly embedded SVG icons and branding assets.
+    let refreshed_via_child = Command::new(&current_exe)
+        .arg("install-assets")
+        .output()
+        .await
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if !refreshed_via_child {
+        let _ = update_installed_assets();
+    }
 
     Ok(current_exe)
 }
 
 /// Refreshes the application SVG icons and desktop entry in user directories.
 pub fn update_installed_assets() -> Result<(), String> {
+    if let Some(home) = dirs::home_dir() {
+        install_assets_to(&home)
+    } else {
+        Err("Unable to locate user home directory".to_string())
+    }
+}
+
+/// Installs latest embedded assets, creates index.theme if needed, clears stale raster caches, and writes desktop entry.
+pub fn install_assets_to(home: &std::path::Path) -> Result<(), String> {
     const SWEEPX_ICON_SVG: &str = include_str!("../../assets/icons/sweepx.svg");
 
-    if let Some(home) = dirs::home_dir() {
-        let icon_targets = [
-            home.join(".local/share/icons/hicolor/scalable/apps/sweepx.svg"),
-            home.join(".local/share/icons/sweepx.svg"),
-            home.join(".local/share/pixmaps/sweepx.svg"),
-        ];
+    let hicolor_dir = home.join(".local/share/icons/hicolor");
+    let scalable_dir = hicolor_dir.join("scalable/apps");
+    let _ = std::fs::create_dir_all(&scalable_dir);
 
-        for path in &icon_targets {
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
-            }
-            let _ = std::fs::write(path, SWEEPX_ICON_SVG);
-        }
-
-        let apps_dir = home.join(".local/share/applications");
-        let desktop_path = apps_dir.join("sweepx.desktop");
-        let icon_path = home.join(".local/share/icons/hicolor/scalable/apps/sweepx.svg");
-        let bin_path = home.join(".local/bin/sweepx");
-
-        if desktop_path.exists() {
-            let desktop_content = format!(
-                "[Desktop Entry]\n\
-                 Type=Application\n\
-                 Name=SweepX\n\
-                 Comment=Unified Linux Application Tracker & Deep Uninstaller\n\
-                 Exec={} gui\n\
-                 Icon={}\n\
-                 Categories=System;Utility;Settings;\n\
-                 Terminal=false\n\
-                 StartupNotify=true\n",
-                bin_path.display(),
-                icon_path.display()
-            );
-            let _ = std::fs::write(&desktop_path, desktop_content);
-        }
-
-        // Trigger cache updates if utilities are present
-        let _ = std::process::Command::new("gtk-update-icon-cache")
-            .args(["-f", "-t", home.join(".local/share/icons/hicolor").to_str().unwrap_or("")])
-            .output();
-
-        let _ = std::process::Command::new("update-desktop-database")
-            .arg(apps_dir.to_str().unwrap_or(""))
-            .output();
+    // Ensure minimal index.theme exists in user hicolor dir so gtk-update-icon-cache does not fail
+    let index_theme = hicolor_dir.join("index.theme");
+    if !index_theme.exists() {
+        let _ = std::fs::write(
+            &index_theme,
+            "[Icon Theme]\nName=Hicolor\nComment=Fallback theme\nDirectories=scalable/apps\n\n[scalable/apps]\nSize=48\nType=Scalable\nMinSize=16\nMaxSize=512\n",
+        );
     }
+
+    let icon_targets = [
+        scalable_dir.join("sweepx.svg"),
+        home.join(".local/share/icons/sweepx.svg"),
+        home.join(".local/share/pixmaps/sweepx.svg"),
+    ];
+
+    for path in &icon_targets {
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(path, SWEEPX_ICON_SVG);
+    }
+
+    // Clean up any stale legacy raster PNG icons that take precedence over scalable SVG in DE caches
+    let legacy_pngs = [
+        home.join(".local/share/icons/sweepx.png"),
+        home.join(".local/share/pixmaps/sweepx.png"),
+        hicolor_dir.join("48x48/apps/sweepx.png"),
+        hicolor_dir.join("128x128/apps/sweepx.png"),
+        hicolor_dir.join("256x256/apps/sweepx.png"),
+    ];
+    for stale in &legacy_pngs {
+        if stale.exists() {
+            let _ = std::fs::remove_file(stale);
+        }
+    }
+
+    let apps_dir = home.join(".local/share/applications");
+    let _ = std::fs::create_dir_all(&apps_dir);
+    let desktop_path = apps_dir.join("sweepx.desktop");
+    let icon_path = scalable_dir.join("sweepx.svg");
+
+    let bin_path = if let Ok(current) = std::env::current_exe() {
+        let s = current.to_string_lossy();
+        if !s.contains("/target/") && !s.contains("/tmp/") {
+            current
+        } else {
+            home.join(".local/bin/sweepx")
+        }
+    } else {
+        home.join(".local/bin/sweepx")
+    };
+
+    let desktop_content = format!(
+        "[Desktop Entry]\n\
+         Type=Application\n\
+         Name=SweepX\n\
+         Comment=Unified Linux Application Tracker & Deep Uninstaller\n\
+         Exec={} gui\n\
+         Icon={}\n\
+         Categories=System;Utility;Settings;\n\
+         Terminal=false\n\
+         StartupNotify=true\n",
+        bin_path.display(),
+        icon_path.display()
+    );
+    let _ = std::fs::write(&desktop_path, desktop_content);
+
+    // Trigger cache updates if utilities are present
+    let _ = std::process::Command::new("gtk-update-icon-cache")
+        .args(["-f", "-t", hicolor_dir.to_str().unwrap_or("")])
+        .output();
+
+    let _ = std::process::Command::new("update-desktop-database")
+        .arg(apps_dir.to_str().unwrap_or(""))
+        .output();
+
+    let _ = std::process::Command::new("touch")
+        .args([hicolor_dir.as_os_str(), apps_dir.as_os_str()])
+        .output();
 
     Ok(())
 }

@@ -56,7 +56,11 @@ pub fn apply_stage_batch(app_map: &mut HashMap<String, Application>, batch: Scan
                     existing.install_method = InstallMethod::Flatpak;
                     existing.version = app.version.or(existing.version);
                     existing.total_size_bytes = app.total_size_bytes.max(existing.total_size_bytes);
-                    existing.artifacts.extend(app.artifacts);
+                    for art in app.artifacts {
+                        if !existing.artifacts.iter().any(|a| a.path == art.path) {
+                            existing.artifacts.push(art);
+                        }
+                    }
                     app_map.insert(app.id.clone(), existing);
                 } else {
                     app_map.insert(app.id.clone(), app);
@@ -85,7 +89,11 @@ pub fn apply_stage_batch(app_map: &mut HashMap<String, Application>, batch: Scan
                     existing.install_method = InstallMethod::Snap;
                     existing.version = app.version.or(existing.version);
                     existing.total_size_bytes = app.total_size_bytes.max(existing.total_size_bytes);
-                    existing.artifacts.extend(app.artifacts);
+                    for art in app.artifacts {
+                        if !existing.artifacts.iter().any(|a| a.path == art.path) {
+                            existing.artifacts.push(art);
+                        }
+                    }
                     existing.is_system = app.is_system;
                     if existing.description.is_none() {
                         existing.description = app.description;
@@ -98,10 +106,23 @@ pub fn apply_stage_batch(app_map: &mut HashMap<String, Application>, batch: Scan
         }
         ScanStageBatch::Manual(apps) => {
             for app in apps {
-                // Only insert if no existing desktop or native app shares the same id or binary
+                // Prevent duplicate entries where an existing desktop or container app already represents this program
+                let app_name_clean = clean_normalized(&app.name);
+                let app_id_clean = clean_normalized(&app.id);
+
                 let already_exists = app_map.values().any(|existing| {
-                    existing.id == app.id
-                        || (existing.exec_path.is_some() && existing.exec_path == app.exec_path)
+                    if existing.id == app.id {
+                        return true;
+                    }
+                    if existing.exec_path.is_some() && existing.exec_path == app.exec_path {
+                        return true;
+                    }
+                    let ex_id_short = existing.id.trim_end_matches(".desktop").rsplit('.').next().unwrap_or(&existing.id);
+                    let ex_id_clean = clean_normalized(ex_id_short);
+                    let ex_name_clean = clean_normalized(&existing.name);
+
+                    (!app_id_clean.is_empty() && (app_id_clean == ex_id_clean || app_id_clean == ex_name_clean))
+                        || (!app_name_clean.is_empty() && (app_name_clean == ex_name_clean || app_name_clean == ex_id_clean))
                 });
                 if !already_exists {
                     app_map.insert(app.id.clone(), app);
@@ -112,10 +133,17 @@ pub fn apply_stage_batch(app_map: &mut HashMap<String, Application>, batch: Scan
             // Index existing desktop, flatpak, snap, and manual applications before processing native packages.
             // This prevents the quadratic O(N * M) explosion and millions of allocations against system packages.
             let mut lookup_index: HashMap<String, String> = HashMap::new();
-            let pre_existing_keys: Vec<String> = app_map.keys().cloned().collect();
+            let mut pre_existing_keys: Vec<String> = app_map.keys().cloned().collect();
+            pre_existing_keys.sort();
 
             for key in &pre_existing_keys {
                 if let Some(existing) = app_map.get(key) {
+                    // Only index Desktop entries (CustomDesktop) that need native package enrichment.
+                    // Container (Flatpak, Snap, Bottles) and manual apps must not be hijacked by native packages.
+                    if existing.install_method != InstallMethod::CustomDesktop {
+                        continue;
+                    }
+
                     let key_clone = key.clone();
                     lookup_index.insert(existing.id.to_lowercase(), key_clone.clone());
 
@@ -140,8 +168,12 @@ pub fn apply_stage_batch(app_map: &mut HashMap<String, Application>, batch: Scan
                 let app_id_clean = clean_normalized(&app_id_lower);
                 let app_name_clean = clean_normalized(&app.name);
 
-                let matching_key = if app_map.contains_key(&app.id) {
-                    Some(app.id.clone())
+                let matching_key = if let Some(existing) = app_map.get(&app.id) {
+                    if existing.install_method == InstallMethod::CustomDesktop {
+                        Some(app.id.clone())
+                    } else {
+                        None
+                    }
                 } else if let Some(target) = lookup_index.get(&app_id_lower) {
                     Some(target.clone())
                 } else if let Some(target) = lookup_index.get(&app_id_clean) {
@@ -149,9 +181,12 @@ pub fn apply_stage_batch(app_map: &mut HashMap<String, Application>, batch: Scan
                 } else if let Some(target) = lookup_index.get(&app_name_clean) {
                     Some(target.clone())
                 } else {
-                    // Fast prefix check against ONLY the pre-existing desktop/user entries
+                    // Fast prefix check against ONLY the pre-existing desktop entries
                     pre_existing_keys.iter().find(|k| {
                         if let Some(existing) = app_map.get(*k) {
+                            if existing.install_method != InstallMethod::CustomDesktop {
+                                return false;
+                            }
                             let ex_short = existing.id.rsplit('.').next().unwrap_or(&existing.id);
                             let ex_clean = clean_normalized(ex_short);
                             if !ex_clean.is_empty() && (ex_clean.starts_with(&app_id_clean) || app_id_clean.starts_with(&ex_clean)) {
@@ -179,7 +214,12 @@ pub fn apply_stage_batch(app_map: &mut HashMap<String, Application>, batch: Scan
                 } else {
                     let mut sys_app = app;
                     sys_app.is_system = true;
-                    app_map.insert(sys_app.id.clone(), sys_app);
+                    let target_key = if app_map.contains_key(&sys_app.id) {
+                        format!("native-{}", sys_app.id)
+                    } else {
+                        sys_app.id.clone()
+                    };
+                    app_map.insert(target_key, sys_app);
                 }
             }
         }

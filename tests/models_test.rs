@@ -12,8 +12,8 @@ fn test_application_creation_and_defaults() {
     assert!(app.artifacts.is_empty());
     assert!(!app.is_system);
 
-    app.total_size_bytes = 150 * 1024 * 1024; // 150 MB
-    assert_eq!(app.formatted_size(), "150.0 MB");
+    app.total_size_bytes = 150 * 1024 * 1024; // 150 MiB
+    assert_eq!(app.formatted_size(), "150.0 MiB");
 
     let bottle_app = Application::new("mathtype", "MathType", InstallMethod::Bottles);
     assert_eq!(bottle_app.install_method.badge_label(), "Bottles");
@@ -53,10 +53,21 @@ fn test_serialization_roundtrip() {
 
 #[test]
 fn test_format_size_helper() {
+    // GiB system (default IEC binary)
     assert_eq!(format_size(500), "500 B");
-    assert_eq!(format_size(2048), "2.0 KB");
-    assert_eq!(format_size(15 * 1024 * 1024), "15.0 MB");
-    assert_eq!(format_size(3 * 1024 * 1024 * 1024 + 500 * 1024 * 1024), "3.49 GB");
+    assert_eq!(format_size(2048), "2.0 KiB");
+    assert_eq!(format_size(15 * 1024 * 1024), "15.0 MiB");
+    assert_eq!(format_size(3 * 1024 * 1024 * 1024 + 500 * 1024 * 1024), "3.49 GiB");
+
+    // Explicit format_size_with_unit
+    assert_eq!(format_size_with_unit(2048, SizeUnitSystem::GiB), "2.0 KiB");
+    assert_eq!(format_size_with_unit(2000, SizeUnitSystem::GB), "2.0 KB");
+    assert_eq!(format_size_with_unit(15 * 1000 * 1000, SizeUnitSystem::GB), "15.0 MB");
+    assert_eq!(format_size_with_unit(3_500_000_000, SizeUnitSystem::GB), "3.50 GB");
+
+    // Unit toggle logic
+    assert_eq!(SizeUnitSystem::GiB.toggle(), SizeUnitSystem::GB);
+    assert_eq!(SizeUnitSystem::GB.toggle(), SizeUnitSystem::GiB);
 }
 
 #[test]
@@ -91,6 +102,6 @@ fn test_application_known_footprint() {
     // Known footprint = 100 MB (payload) + 250 MB (sandbox) + 2048 (desktop)
     let expected = (100 + 250) * 1024 * 1024 + 2048;
     assert_eq!(app.known_footprint_bytes(), expected);
-    assert_eq!(app.formatted_size(), "100.0 MB");
-    assert_eq!(app.formatted_known_footprint(), "350.0 MB");
+    assert_eq!(app.formatted_size(), "100.0 MiB");
+    assert_eq!(app.formatted_known_footprint(), "350.0 MiB");
 }

@@ -337,18 +337,6 @@ pub async fn discover_residuals_for_app(app: &Application) -> Vec<ResidualCandid
                         1.0,
                     );
                 }
-
-                // 5. Binary Executable Path (if not a system/shared binary)
-                if !app_clone.install_method.is_native_system() {
-                    check_and_add_candidate(
-                        &mut candidates,
-                        &mut seen_paths,
-                        &app_clone,
-                        exec_path.clone(),
-                        ArtifactKind::Binary,
-                        1.0,
-                    );
-                }
             }
         }
 
@@ -391,6 +379,12 @@ fn is_shared_system_binary(path: &Path) -> bool {
         || path_str == "/usr/bin/env"
         || path_str.starts_with("/usr/bin/python")
         || path_str.starts_with("/usr/bin/perl")
+        || path_str.starts_with("/usr/")
+        || path_str.starts_with("/bin/")
+        || path_str.starts_with("/sbin/")
+        || path_str.starts_with("/lib/")
+        || path_str.starts_with("/lib64/")
+        || path_str.starts_with("/opt/")
     {
         return true;
     }

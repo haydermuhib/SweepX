@@ -1,0 +1,54 @@
+# Agent Guidelines for SweepX
+
+This project uses the **pstack** engineering discipline (`poteto-mode`). All agents operating on this codebase must apply rigorous engineering standards: test behavior directly, eliminate bugs at the highest level (architecture and types), verify against real artifacts, and write unslopped prose.
+
+## Core Principles
+
+1. **Type System Discipline (`principle-type-system-discipline`)**:
+   - Model distinct domain states as sum types (enums in Rust), not loose strings or arbitrary bags of optional flags.
+   - Example: `SizeUnitSystem` (`GiB` default, `GB` SI decimal). All unit formatting routes through pure total functions (`format_size_with_unit`).
+
+2. **Make Operations Idempotent (`principle-make-operations-idempotent`)**:
+   - App discovery scans, deduplications, and metric calculations must converge to the exact same deterministic state regardless of how many times a user hits "Refresh Scan" or clicks across tabs.
+
+3. **Boundary Discipline (`principle-boundary-discipline`)**:
+   - Separate static package payload from user residual caches. Do not initiate unconstrained background disk crawls on startup or refresh. Load residual candidates on demand when inspecting or cleaning specific applications.
+
+4. **Test Behavior, Not Implementation (`principle-test-behavior-not-implementation`)**:
+   - Call code the way users do and assert literal expected values. Tests must observe real output or effects and fail if logic is broken or bypassed.
+
+5. **Prove It Works (`principle-prove-it-works`)**:
+   - Verify changes against real artifacts (`cargo check --bin sweepx`, `cargo test`, binary execution), never proxies or assumptions.
+
+6. **Unslop (`unslop`)**:
+   - Cut AI tells, filler, artificial ranges, superficial phrases, and passive voice. Speak plainly and directly.
+
+7. **No Hardcoding (`principle-no-hardcoding`)**:
+   - Never hardcode specific application names, tool paths, or directory targets (e.g. `home.join(".spicetify")`).
+   - Discovery mechanisms must be structural and general: inspect standard environment sources (such as dynamic user-space `$PATH`), XDG/FHS specifications, or package registries. Hardcoding individual tools is strictly forbidden.
+
+---
+
+## Correct Rule Table
+
+Per pstack's `correct` skill, every mistake class corrected in this repository is recorded with its enforcement mechanism and regression test:
+
+| Mistake Class | Root Cause | Level Chosen | Enforcement Mechanism | Verifying Test |
+|---|---|---|---|---|
+| **Footprint Metric Fluctuation** | Storage footprint card summed dynamic on-demand residual caches with package payloads, causing metrics to jump between 48–49 GB and 51–52 GB as residuals completed. | Architecture & Calculation | `SweepXApp::view_applications_dashboard` derives base storage footprint deterministically from package payloads (`total_size_bytes`). | `test_storage_footprint_metric_stability_across_repeated_refreshes_and_mutations` in [`tests/exact_footprint_regression_test.rs`](tests/exact_footprint_regression_test.rs) |
+| **Startup Disk Thrashing** | Spawning unconstrained background residual batches across all 60+ apps on `ScanCompleted`. | Architecture & Lifecycle | Residuals are loaded strictly on demand per app. `Message::ScanCompleted` returns `Task::none()`. | `test_startup_and_refresh_do_not_dispatch_blanket_residual_scans` in [`tests/exact_footprint_regression_test.rs`](tests/exact_footprint_regression_test.rs) |
+| **Unit System Ambiguity (GiB vs GB)** | Base-1024 binary units (e.g. 48 GiB) and Base-1000 decimal units (e.g. 52 GB) confused without an explicit typed unit system. | Type System Discipline | `SizeUnitSystem` enum (`GiB` default IEC binary, `GB` SI decimal), with `format_size_with_unit` and a reactive UI header toggle. | `test_size_unit_system_strict_boundaries_and_toggle` in [`tests/exact_footprint_regression_test.rs`](tests/exact_footprint_regression_test.rs), `test_unit_system_toggle_and_formatting` in [`tests/dashboard_sorting_test.rs`](tests/dashboard_sorting_test.rs) |
+| **Packaging Deduplication Non-determinism** | Iterating `HashSet` keys in non-deterministic hash order during native package deduplication. | Architecture & Ordering | Keys sorted lexicographically prior to insertion in `scan_all_applications`. | `test_desktop_entry_parsing_speed_no_blocking_processes` in [`tests/scanner_optimization_test.rs`](tests/scanner_optimization_test.rs) |
+| **Snap Package Hijacking by Native Stage** | Native package scan (e.g. RPM `snapd`) matched existing container apps by ID and overwrote `install_method` to `NativeRpm`, reducing Snap apps from 10 to 9. | Architecture & Boundary Discipline | Native package merging in `apply_stage_batch` is restricted strictly to `CustomDesktop` entries; native packages sharing a container ID are kept under distinct keys (`native-{id}`). | `test_snapd_preserved_in_snap_batch_and_not_hijacked_by_native_rpm` in [`tests/snap_detection_test.rs`](tests/snap_detection_test.rs) |
+| **Unconstrained Home/PATH Crawls & User Data Duplication** | Crawling arbitrary dot-directories in `$HOME` or sweeping `$PATH` misidentified user data and extension folders as standalone apps, created duplicates of existing desktop/container apps, and risked user data destruction. | Boundary Discipline & Architecture | Manual scanner is restricted to designated user binary locations (`~/.local/bin`, `~/Applications`, `~/bin`, `/usr/local/bin`, and user-space `$PATH` directories). `ScanStageBatch::Manual` deduplicates against existing desktop/container apps by normalized name and short ID. | `test_manual_scanner_deduplicates_against_existing_desktop_apps` in [`tests/scanner_optimization_test.rs`](tests/scanner_optimization_test.rs) |
+| **Application-Specific Path Hardcoding** | Hardcoding single-app directories (e.g. `~/.spicetify`) in discovery loops leaves other valid tools (`pixi`, `bun`, `cargo`, etc.) undiscovered and violates general scanner design. | Architecture & Generalization | `get_user_binary_scan_dirs` dynamically ingests all user-space directories in `$PATH`, applying structural filters (excluding system `/usr/bin`, container wrappers, and IDE internals) without naming specific apps. | `test_dynamic_path_discovery_finds_pixi_and_spicetify_without_hardcoding` in [`tests/scanner_optimization_test.rs`](tests/scanner_optimization_test.rs) |
+| **Header Toggle Button Washed-Out Contrast** | Using `secondary_button` for the unit system header toggle rendered pale cream/muted text against a bright pistachio background, violating readability standards. | UI Design & Accessibility | `Theme::header_toggle_button` uses burgundy inset background (`BURGUNDY_INSET`), border styling, and high-contrast text. | `test_header_toggle_button_style_and_contrast` in [`tests/ui_theme_taste_test.rs`](tests/ui_theme_taste_test.rs) |
+| **Packaging Tier Badge Vertical Wrapping and Squeezing** | Container width allocation in cards starved app title rows, and `badge_by_label` lacked `Wrapping::None` and `Length::Shrink`, causing badges like `Flatpak`, `Bottles`, and `Manual (/opt)` to wrap into vertical stacks. | UI Layout & Container Sizing | Badges enforce `Wrapping::None` and `Length::Shrink`. Card rows allocate `Length::Fill` to title and `Length::Shrink` to pills and actions. Inspector splits title and badge rows. | `test_badge_elements_construct_without_panic` in [`tests/ui_theme_taste_test.rs`](tests/ui_theme_taste_test.rs) |
+| **Audit Log Path Opacity & Missing Sweep Persistence** | Audit history records showed high-level freed bytes and path counts without allowing users to inspect the exact deleted file paths stored in the SQLite database, and system maintenance sweeps did not persist audit entries. | UX Transparency & Persistence | Added `OpenAuditInspector` and `view_audit_inspector_overlay` with searchable, copyable path rows. `RunSystemSweep` persists cleaned paths and freed bytes directly into `Database::record_audit`. | `test_audit_history_database_records_and_retrieves_deleted_paths` and `test_audit_inspector_modal_lifecycle_and_view` in [`tests/audit_inspector_test.rs`](tests/audit_inspector_test.rs) |
+| **Purge and Audit Record Inconsistency with Inspect Findings** | Purge modal checklist omitted the primary package payload despite including its bytes in estimated reclaimable disk space, and purge audit records excluded the package executable and launcher from deleted paths. | Architecture & UX Consistency | `view_clean_overlay` includes a selectable Primary Application Package & Payload row with `purge_package` toggle, matching the Inspector layout. `ConfirmPurge` includes executable, launcher, and artifacts in `deleted_paths`. | `test_purge_modal_consistency_with_inspect_and_audit` in [`tests/audit_inspector_test.rs`](tests/audit_inspector_test.rs) |
+| **Manual/Custom App Package Purge No-Op** | `execute_purge_package` for `ManualOpt`, `CustomDesktop`, and `AppImage` deleted only SQLite manifests and returned `Ok` without unlinking binaries, launchers, or artifacts, leaving payloads on disk while falsely recording them deleted. | Execution & Deletion Engine | `delete_target_path` validates through `SafetyValidator` and actually deletes target files and directories via `trash::delete` or `remove_file`/`remove_dir_all` (with elevated fallback). `execute_purge_package` unlinks `app.exec_path`, `app.desktop_file`, and `app.artifacts`, and audit recording is strictly conditional on package purge success. | [`tests/executor_test.rs`](tests/executor_test.rs), [`tests/application_sanity_e2e_test.rs`](tests/application_sanity_e2e_test.rs) |
+| **Self-Update In-Memory Asset Stale Overwrite** | Old running binary called `update_installed_assets` during `sweepx update`, writing its own outdated embedded SVG over the new version, while missing `index.theme` prevented icon cache invalidation and stale PNGs shadowed scalable SVGs. | Asset Pipeline & Self-Update Lifecycle | Post-update execution triggers the new binary via `install-assets` child command. `install_assets_to` writes scalable SVG, guarantees `hicolor/index.theme`, deletes conflicting raster PNGs, writes desktop entry unconditionally, and triggers desktop cache invalidations. | `test_install_assets_to_refreshes_branding_and_cleans_legacy_pngs` in [`tests/updater_test.rs`](tests/updater_test.rs) |
+
+
+
+

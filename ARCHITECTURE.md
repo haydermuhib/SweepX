@@ -59,14 +59,14 @@ src/
 ├── lib.rs                   # Library exports and shared module definitions
 ├── cli/                     # CLI parser, command handlers, and terminal output
 ├── db/                      # SQLite database connection, schema, and queries
-├── models/                  # Core domain models (Application, Artifact, Residual)
+├── models/                  # Core domain models (Application, Artifact, Residual, SizeUnitSystem)
 ├── scanner/                 # Discovery engines across all packaging tiers
-│   ├── orchestrator.rs      # Multi-tier async scanner and deduplicator
+│   ├── orchestrator.rs      # Multi-tier async scanner, deduplicator, and container insulator
 │   ├── desktop_entry.rs     # Freedesktop .desktop parser and icon resolver
 │   ├── flatpak.rs           # Flatpak CLI client and runtime parser
 │   ├── snap.rs              # Snap CLI client and revision tracker
 │   ├── appimage.rs          # AppImage detector, ELF header parser, and integrator
-│   ├── manual.rs            # /opt and ~/.local/bin scanner with package ownership check
+│   ├── manual.rs            # User-space $PATH and /opt scanner with package ownership check
 │   ├── symlink_graph.rs     # Stow-style symlink graph resolver
 │   └── native/              # Package manager clients (dpkg, rpm, pacman)
 ├── cleaner/                 # Residual detection, safety validator, and executor
@@ -92,14 +92,14 @@ The scanner queries package registries, container runtimes, and local directorie
 
 | File | Scanner Type | Responsibility |
 | :--- | :--- | :--- |
-| [`src/scanner/orchestrator.rs`](src/scanner/orchestrator.rs) | `ScannerOrchestrator` | Runs all tier scanners concurrently, applies deduplication rules, and merges desktop launchers with native packages. |
-| [`src/scanner/native/apt.rs`](src/scanner/native/apt.rs) | `AptScanner` | Queries Debian/Ubuntu `dpkg-query` and parses status records. |
-| [`src/scanner/native/dnf.rs`](src/scanner/native/dnf.rs) | `DnfScanner` | Queries Fedora/RHEL/openSUSE `rpm` database for installed software. |
+| [`src/scanner/orchestrator.rs`](src/scanner/orchestrator.rs) | `ScannerOrchestrator` | Runs all tier scanners concurrently, applies multi-tier deduplication rules, protects Snap and Flatpak container packages from native package overwrites, and merges desktop launchers with native packages. |
+| [`src/scanner/native/apt.rs`](src/scanner/native/apt.rs) | `AptScanner` | Queries Debian and Ubuntu `dpkg-query` and parses status records. |
+| [`src/scanner/native/dnf.rs`](src/scanner/native/dnf.rs) | `DnfScanner` | Queries Fedora, RHEL, and openSUSE `rpm` database for installed software. |
 | [`src/scanner/native/pacman.rs`](src/scanner/native/pacman.rs) | `PacmanScanner` | Queries Arch Linux `pacman -Qi` for local packages. |
 | [`src/scanner/flatpak.rs`](src/scanner/flatpak.rs) | `FlatpakScanner` | Parses output from `flatpak list --app` and extracts versions, sizes, and IDs. |
-| [`src/scanner/snap.rs`](src/scanner/snap.rs) | `SnapScanner` | Inspects Snap revisions, publisher channels, and package status. |
+| [`src/scanner/snap.rs`](src/scanner/snap.rs) | `SnapScanner` | Inspects Snap revisions, publisher channels, and package status without blocking on missing daemon sockets. |
 | [`src/scanner/appimage.rs`](src/scanner/appimage.rs) | `AppImageScanner` | Discovers standalone AppImages, verifies magic bytes, and provides desktop integration. |
-| [`src/scanner/manual.rs`](src/scanner/manual.rs) | `ManualScanner` | Crawls `/opt`, `~/.local/bin`, and `~/Applications`. Validates files against an extension blacklist, verifies ELF headers, and checks `rpm -qf`, `dpkg -S`, or `pacman -Qo` to prevent duplicating native packages. |
+| [`src/scanner/manual.rs`](src/scanner/manual.rs) | `ManualScanner` | Scans `/opt`, standard user binary folders, and dynamic user-space `$PATH` directories (including `~/.pixi/bin`, `~/.spicetify`, `~/.cargo/bin`). Validates files against an extension blacklist, checks executable permissions, and enforces single-binary artifact scoping without touching user data or configuration directories. |
 | [`src/scanner/desktop_entry.rs`](src/scanner/desktop_entry.rs) | `DesktopEntryScanner` | Scans `~/.local/share/applications` and `/usr/share/applications`, extracting Exec commands, Categories, and icon paths. |
 | [`src/scanner/symlink_graph.rs`](src/scanner/symlink_graph.rs) | `SymlinkGraph` | Traces symlink graphs in `/usr/local/bin` and `~/.local/bin` to locate target binaries. |
 

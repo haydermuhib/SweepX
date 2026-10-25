@@ -95,3 +95,36 @@ fn test_snap_runtime_classification() {
     assert!(!is_snap_runtime_or_dependency("spotify"));
     assert!(!is_snap_runtime_or_dependency("firefox"));
 }
+
+#[test]
+fn test_snapd_preserved_in_snap_batch_and_not_hijacked_by_native_rpm() {
+    use std::collections::HashMap;
+    use sweepx::scanner::orchestrator::ScanStageBatch;
+
+    let mut app_map = HashMap::new();
+
+    // 1. Snap scan discovers snapd package
+    let snap_snapd = Application::new("snapd", "snapd", InstallMethod::Snap);
+    let snap_batch = ScanStageBatch::Snap(vec![snap_snapd]);
+    snap_batch.apply_to(&mut app_map);
+
+    assert!(app_map.contains_key("snapd"));
+    assert_eq!(app_map["snapd"].install_method, InstallMethod::Snap);
+
+    // 2. Native RPM package scan discovers host snapd package
+    let mut rpm_snapd = Application::new("snapd", "snapd", InstallMethod::NativeDnf);
+    rpm_snapd.total_size_bytes = 45_000_000;
+    rpm_snapd.is_system = true;
+
+    let native_batch = ScanStageBatch::Native(vec![rpm_snapd]);
+    native_batch.apply_to(&mut app_map);
+
+    // Contract: The snapd Snap package MUST remain in Snap category,
+    // and the native package must be inserted under a distinct key!
+    assert!(app_map.contains_key("snapd"));
+    assert_eq!(app_map["snapd"].install_method, InstallMethod::Snap);
+
+    assert!(app_map.contains_key("native-snapd"));
+    assert_eq!(app_map["native-snapd"].install_method, InstallMethod::NativeDnf);
+    assert!(app_map["native-snapd"].is_system);
+}

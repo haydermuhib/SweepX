@@ -71,7 +71,7 @@ Type=Application
     let db_path = base_path.join("test_audit.db");
     let mut db = Database::open(&db_path).expect("Failed to open test db");
 
-    db.save_apps(&[app.clone()]).expect("Failed to save app");
+    db.save_apps(std::slice::from_ref(&app)).expect("Failed to save app");
 
     let audit_entry = AuditLogEntry {
         id: None,

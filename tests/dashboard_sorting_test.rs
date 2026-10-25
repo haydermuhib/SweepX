@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use sweepx::models::{Application, InstallMethod};
+use sweepx::models::{Application, InstallMethod, SizeUnitSystem};
 use sweepx::ui::{
     sort_and_filter_applications, CategoryFilter, SortDirection, SortField, SweepXApp,
 };
@@ -261,3 +261,51 @@ fn test_category_and_system_filtering_integrated_with_sorting() {
     assert!(searched_ids.contains(&"code"));
     assert!(searched_ids.contains(&"notepad-plus-plus"));
 }
+
+#[test]
+fn test_footprint_consistency_across_search_and_inspect_cache() {
+    let (mut app_state, _task) = SweepXApp::new();
+    let apps = create_test_apps();
+
+    // 1. Initial scan completed updates apps list
+    let _ = app_state.update(sweepx::ui::Message::ScanCompleted(apps));
+
+    // 2. Residual batch loaded populates cache
+    let _ = app_state.update(sweepx::ui::Message::ResidualsBatchLoaded(vec![
+        ("code".to_string(), 500 * 1024 * 1024), // 500 MB residuals
+    ]));
+
+    // 3. When searching for "code", cache must match inspected calculation
+    let _ = app_state.update(sweepx::ui::Message::SearchChanged("code".to_string()));
+
+    let cached = app_state.app_residuals_cache.get("code").copied();
+    assert_eq!(cached, Some(500 * 1024 * 1024));
+
+    let code_app = app_state.applications.iter().find(|a| a.id == "code").unwrap();
+    let total_footprint = code_app.total_size_bytes + cached.unwrap();
+    assert_eq!(total_footprint, 1400 * 1024 * 1024); // 900 MB payload + 500 MB residuals = 1400 MB
+}
+
+#[test]
+fn test_unit_system_toggle_and_formatting() {
+    let (mut app_state, _task) = SweepXApp::new();
+
+    // 1. Defaults to GiB system (IEC binary base 1024)
+    assert_eq!(app_state.unit_system, SizeUnitSystem::GiB);
+    assert_eq!(app_state.format_bytes(1024 * 1024 * 1024), "1.00 GiB");
+    assert_eq!(app_state.format_bytes(50 * 1024 * 1024 * 1024), "50.00 GiB");
+
+    // 2. Toggle unit system to GB (SI decimal base 1000)
+    let _ = app_state.update(sweepx::ui::Message::ToggleUnitSystem);
+    assert_eq!(app_state.unit_system, SizeUnitSystem::GB);
+    assert_eq!(app_state.format_bytes(1000 * 1000 * 1000), "1.00 GB");
+    // 50 GiB in bytes formatted as GB decimal: 50 * 1024^3 = 53,687,091,200 bytes => 53.69 GB
+    assert_eq!(app_state.format_bytes(50 * 1024 * 1024 * 1024), "53.69 GB");
+
+    // 3. Toggle back to GiB
+    let _ = app_state.update(sweepx::ui::Message::ToggleUnitSystem);
+    assert_eq!(app_state.unit_system, SizeUnitSystem::GiB);
+    assert_eq!(app_state.format_bytes(50 * 1024 * 1024 * 1024), "50.00 GiB");
+}
+
+

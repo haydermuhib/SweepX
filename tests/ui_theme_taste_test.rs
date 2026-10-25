@@ -24,6 +24,7 @@ fn contrast_ratio(c1: Color, c2: Color) -> f32 {
 
 
 #[test]
+#[allow(clippy::assertions_on_constants)]
 fn test_palette_color_identity() {
     // 1. Burgundy Canvas & Modal: Red dominant, dark luminance
     assert!(Theme::BURGUNDY_CANVAS.r > Theme::BURGUNDY_CANVAS.g);
@@ -152,6 +153,7 @@ fn test_ghost_button_active_state_is_pistachio() {
 }
 
 #[test]
+#[allow(clippy::assertions_on_constants)]
 fn test_apple_design_depth_and_elevation_tokens() {
     // 1. Card elevation has directional Y offset and diffused blur radius
     assert!(Theme::ELEVATION_CARD.offset.y > 0.0);
@@ -262,5 +264,67 @@ fn test_packaging_tier_color_coded_badges() {
     // 6. Bottles: Wine Magenta
     let (bottles_bg, _) = Theme::method_badge_colors(InstallMethod::Bottles);
     assert_eq!(bottles_bg, Color::from_rgb8(190, 24, 93));
+}
+
+#[test]
+fn test_header_toggle_button_style_and_contrast() {
+    use sweepx::ui::theme::Theme;
+
+    // Active state uses BURGUNDY_INSET background and WARM_CREAM text
+    let active_style = Theme::header_toggle_button(button::Status::Active);
+    assert_eq!(active_style.background, Some(Background::Color(Theme::BURGUNDY_INSET)));
+    assert_eq!(active_style.text_color, Theme::WARM_CREAM);
+    assert_eq!(active_style.border.color, Theme::BORDER_COLOR);
+
+    // High-contrast check: WARM_CREAM on BURGUNDY_INSET must exceed WCAG AA (>= 4.5:1)
+    let contrast = contrast_ratio(Theme::BURGUNDY_INSET, Theme::WARM_CREAM);
+    assert!(
+        contrast >= 4.5,
+        "Header toggle button contrast ({:.2}) on BURGUNDY_INSET must meet WCAG AA (>= 4.5:1)",
+        contrast
+    );
+
+    // Pistachio text on BURGUNDY_INSET must also exceed WCAG AA (>= 4.5:1)
+    let pistachio_contrast = contrast_ratio(Theme::BURGUNDY_INSET, Theme::PISTACHIO);
+    assert!(
+        pistachio_contrast >= 4.5,
+        "Pistachio accent text contrast ({:.2}) on BURGUNDY_INSET must meet WCAG AA (>= 4.5:1)",
+        pistachio_contrast
+    );
+
+    // Hovered state highlights border with PISTACHIO
+    let hovered_style = Theme::header_toggle_button(button::Status::Hovered);
+    assert_eq!(hovered_style.border.color, Theme::PISTACHIO);
+    assert_eq!(hovered_style.text_color, Theme::WARM_CREAM);
+
+    // Pressed state highlights border with PISTACHIO_PRESSED
+    let pressed_style = Theme::header_toggle_button(button::Status::Pressed);
+    assert_eq!(pressed_style.border.color, Theme::PISTACHIO_PRESSED);
+}
+
+#[test]
+fn test_badge_elements_construct_without_panic() {
+    use sweepx::models::InstallMethod;
+    use sweepx::ui::theme::Theme;
+
+    // Verify all install methods construct badge elements cleanly
+    let methods = [
+        InstallMethod::NativeDnf,
+        InstallMethod::NativeApt,
+        InstallMethod::NativePacman,
+        InstallMethod::Flatpak,
+        InstallMethod::Snap,
+        InstallMethod::AppImage,
+        InstallMethod::Bottles,
+        InstallMethod::ManualOpt,
+        InstallMethod::CustomDesktop,
+    ];
+
+    for method in methods {
+        let _elem: iced::Element<'_, ()> = Theme::method_badge(method);
+    }
+
+    // Direct string labels
+    let _custom: iced::Element<'_, ()> = Theme::badge_by_label("Manual (/opt)");
 }
 
