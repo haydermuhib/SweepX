@@ -356,6 +356,9 @@ run_step "Configuring vector icons and repairing icon caches" "
             rm -f '$HICOLOR_DIR/index.theme' '$HICOLOR_DIR/icon-theme.cache'
         fi
     fi
+    if [ ! -f '$HICOLOR_DIR/index.theme' ] && [ -f '$HICOLOR_DIR/icon-theme.cache' ]; then
+        rm -f '$HICOLOR_DIR/icon-theme.cache'
+    fi
 
     cat <<'SVG_EOF' > '$ICONS_DIR/sweepx.svg'
 <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 512 512\" width=\"512\" height=\"512\" role=\"img\" aria-labelledby=\"title-app-icon\">

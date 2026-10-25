@@ -310,6 +310,12 @@ pub fn install_assets_to(home: &std::path::Path) -> Result<(), String> {
         }
     }
 
+    // If index.theme does not exist, an icon-theme.cache in user hicolor is invalid and causes GTK lookup failures
+    let orphan_cache = hicolor_dir.join("icon-theme.cache");
+    if !index_theme.exists() && orphan_cache.exists() {
+        let _ = std::fs::remove_file(orphan_cache);
+    }
+
     let icon_targets = [
         scalable_dir.join("sweepx.svg"),
         home.join(".local/share/icons/sweepx.svg"),
