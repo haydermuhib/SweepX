@@ -109,40 +109,73 @@ pub fn apply_stage_batch(app_map: &mut HashMap<String, Application>, batch: Scan
             }
         }
         ScanStageBatch::Native(apps) => {
+            // Index existing desktop, flatpak, snap, and manual applications before processing native packages.
+            // This prevents the quadratic O(N * M) explosion and millions of allocations against system packages.
+            let mut lookup_index: HashMap<String, String> = HashMap::new();
+            let pre_existing_keys: Vec<String> = app_map.keys().cloned().collect();
+
+            for key in &pre_existing_keys {
+                if let Some(existing) = app_map.get(key) {
+                    let key_clone = key.clone();
+                    lookup_index.insert(existing.id.to_lowercase(), key_clone.clone());
+
+                    let short_id = existing.id.rsplit('.').next().unwrap_or(&existing.id).to_lowercase();
+                    lookup_index.insert(short_id.clone(), key_clone.clone());
+                    lookup_index.insert(clean_normalized(&short_id), key_clone.clone());
+
+                    if let Some(bin) = existing.exec_path.as_ref().and_then(|p| p.file_name()).and_then(|n| n.to_str()) {
+                        let bin_lower = bin.to_lowercase();
+                        lookup_index.insert(bin_lower.clone(), key_clone.clone());
+                        lookup_index.insert(clean_normalized(&bin_lower), key_clone.clone());
+                    }
+
+                    let name_lower = existing.name.to_lowercase();
+                    lookup_index.insert(name_lower.clone(), key_clone.clone());
+                    lookup_index.insert(clean_normalized(&name_lower), key_clone.clone());
+                }
+            }
+
             for app in apps {
-                // Find matching desktop or manual entry
+                let app_id_lower = app.id.to_lowercase();
+                let app_id_clean = clean_normalized(&app_id_lower);
+                let app_name_clean = clean_normalized(&app.name);
+
                 let matching_key = if app_map.contains_key(&app.id) {
                     Some(app.id.clone())
+                } else if let Some(target) = lookup_index.get(&app_id_lower) {
+                    Some(target.clone())
+                } else if let Some(target) = lookup_index.get(&app_id_clean) {
+                    Some(target.clone())
+                } else if let Some(target) = lookup_index.get(&app_name_clean) {
+                    Some(target.clone())
                 } else {
-                    app_map.keys().find(|k| {
-                        let existing = &app_map[*k];
-                        let bin_name = existing.exec_path.as_ref()
-                            .and_then(|p| p.file_name())
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("");
-                        let existing_short_id = existing.id.rsplit('.').next().unwrap_or(&existing.id);
-
-                        existing.id == app.id
-                            || (!bin_name.is_empty() && bin_name.eq_ignore_ascii_case(&app.id))
-                            || existing_short_id.eq_ignore_ascii_case(&app.id)
-                            || is_name_fuzzy_match(&existing.name, &app.name)
-                            || is_name_fuzzy_match(existing_short_id, &app.id)
-                            || (!bin_name.is_empty() && is_name_fuzzy_match(bin_name, &app.id))
+                    // Fast prefix check against ONLY the pre-existing desktop/user entries
+                    pre_existing_keys.iter().find(|k| {
+                        if let Some(existing) = app_map.get(*k) {
+                            let ex_short = existing.id.rsplit('.').next().unwrap_or(&existing.id);
+                            let ex_clean = clean_normalized(ex_short);
+                            if !ex_clean.is_empty() && (ex_clean.starts_with(&app_id_clean) || app_id_clean.starts_with(&ex_clean)) {
+                                let diff = (ex_clean.len() as isize - app_id_clean.len() as isize).abs();
+                                return diff <= 7;
+                            }
+                        }
+                        false
                     }).cloned()
                 };
 
                 if let Some(key) = matching_key {
-                    let mut existing = app_map.remove(&key).unwrap();
-                    existing.id = app.id.clone();
-                    existing.install_method = app.install_method;
-                    existing.version = app.version.or(existing.version);
-                    existing.total_size_bytes = app.total_size_bytes.max(existing.total_size_bytes);
-                    existing.description = existing.description.or(app.description);
-                    existing.is_system = false;
-                    if existing.exec_path.is_none() {
-                        existing.exec_path = app.exec_path;
+                    if let Some(mut existing) = app_map.remove(&key) {
+                        existing.id = app.id.clone();
+                        existing.install_method = app.install_method;
+                        existing.version = app.version.or(existing.version);
+                        existing.total_size_bytes = app.total_size_bytes.max(existing.total_size_bytes);
+                        existing.description = existing.description.or(app.description);
+                        existing.is_system = false;
+                        if existing.exec_path.is_none() {
+                            existing.exec_path = app.exec_path;
+                        }
+                        app_map.insert(app.id.clone(), existing);
                     }
-                    app_map.insert(app.id.clone(), existing);
                 } else {
                     let mut sys_app = app;
                     sys_app.is_system = true;
@@ -153,37 +186,35 @@ pub fn apply_stage_batch(app_map: &mut HashMap<String, Application>, batch: Scan
     }
 }
 
-/// Checks if two application names/IDs are equivalent (e.g. google-chrome vs google-chrome-stable).
-fn is_name_fuzzy_match(a: &str, b: &str) -> bool {
-    let a_clean = a.to_lowercase().replace('-', "").replace('_', "");
-    let b_clean = b.to_lowercase().replace('-', "").replace('_', "");
-    if a_clean == b_clean {
-        return true;
-    }
-    if a_clean.starts_with(&b_clean) || b_clean.starts_with(&a_clean) {
-        let diff = (a_clean.len() as isize - b_clean.len() as isize).abs();
-        if diff <= 7 {
-            return true;
-        }
-    }
-    false
+/// Normalizes a string by filtering out non-alphanumeric characters and converting to lowercase.
+#[inline]
+fn clean_normalized(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(|c| c.to_lowercase())
+        .collect()
 }
 
-/// Concurrently scans and aggregates applications across all system packaging tiers.
-pub async fn scan_all_applications() -> Vec<Application> {
-    let (desktop_res, manual_res, flatpak_res, snap_res) = tokio::join!(
-        scan_desktop_entries(),
-        scan_manual_installations(),
-        scan_flatpaks(),
-        scan_snaps()
-    );
-
+/// Scans all native package managers installed on the system.
+pub async fn scan_native_packages() -> Vec<Application> {
     let native_managers = detect_available_package_managers();
     let mut native_apps = Vec::new();
     for pm in native_managers {
         let mut apps = pm.list_installed().await;
         native_apps.append(&mut apps);
     }
+    native_apps
+}
+
+/// Concurrently scans and aggregates applications across all system packaging tiers.
+pub async fn scan_all_applications() -> Vec<Application> {
+    let (desktop_res, manual_res, flatpak_res, snap_res, native_apps) = tokio::join!(
+        scan_desktop_entries(),
+        scan_manual_installations(),
+        scan_flatpaks(),
+        scan_snaps(),
+        scan_native_packages()
+    );
 
     let mut app_map: HashMap<String, Application> = HashMap::new();
     apply_stage_batch(&mut app_map, ScanStageBatch::Desktop(desktop_res));

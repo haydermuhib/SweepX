@@ -113,3 +113,45 @@ fn test_payload_and_footprint_metrics_calculation() {
     let combined_footprint = app.total_size_bytes + residual_bytes;
     assert_eq!(combined_footprint, 66_100_000);
 }
+
+#[tokio::test]
+async fn test_profile_scanner_breakdown() {
+    let t0 = Instant::now();
+    let d = sweepx::scanner::desktop_entry::scan_desktop_entries().await;
+    let d_time = t0.elapsed();
+
+    let t1 = Instant::now();
+    let m = sweepx::scanner::manual::scan_manual_installations().await;
+    let m_time = t1.elapsed();
+
+    let t2 = Instant::now();
+    let f = sweepx::scanner::flatpak::scan_flatpaks().await;
+    let f_time = t2.elapsed();
+
+    let t3 = Instant::now();
+    let s = sweepx::scanner::snap::scan_snaps().await;
+    let s_time = t3.elapsed();
+
+    let t4 = Instant::now();
+    let pms = sweepx::scanner::native::detect_available_package_managers();
+    let mut native_apps = Vec::new();
+    for pm in pms {
+        let mut pkgs = pm.list_installed().await;
+        native_apps.append(&mut pkgs);
+    }
+    let native_time = t4.elapsed();
+
+    let t5 = Instant::now();
+    let _all = sweepx::scanner::scan_all_applications().await;
+    let full_time = t5.elapsed();
+
+    println!("\n=== SCANNER TIMING BREAKDOWN ===");
+    println!("Desktop entries:      {:?} ({} apps)", d_time, d.len());
+    println!("Manual installations: {:?} ({} apps)", m_time, m.len());
+    println!("Flatpaks:             {:?} ({} apps)", f_time, f.len());
+    println!("Snaps:                {:?} ({} apps)", s_time, s.len());
+    println!("Native packages:      {:?} ({} pkgs)", native_time, native_apps.len());
+    println!("FULL scan_all_applications(): {:?}", full_time);
+    println!("================================\n");
+}
+

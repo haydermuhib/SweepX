@@ -1,6 +1,7 @@
+use crate::models::InstallMethod;
 use iced::border::Border;
-use iced::widget::{button, container, text_input};
-use iced::{Background, Color};
+use iced::widget::{button, container, scrollable, text_input};
+use iced::{Background, Color, Shadow, Vector};
 
 pub struct Theme;
 
@@ -21,6 +22,13 @@ impl Theme {
         0x42 as f32 / 255.0,
         0x16 as f32 / 255.0,
         0x22 as f32 / 255.0,
+    );
+
+    /// Recessed deep burgundy for inset modal items and panels (#320e17)
+    pub const BURGUNDY_INSET: Color = Color::from_rgb(
+        0x32 as f32 / 255.0,
+        0x0e as f32 / 255.0,
+        0x17 as f32 / 255.0,
     );
 
     /// Warm, elegant cream for result cards (#ede5d2)
@@ -147,6 +155,108 @@ impl Theme {
     );
 
     // -------------------------------------------------------------
+    // Apple-Inspired Elevation & Depth Tokens (HIG Materials)
+    // -------------------------------------------------------------
+
+    /// Subtle resting ambient drop shadow for cream cards on wine canvas
+    pub const ELEVATION_CARD: Shadow = Shadow {
+        color: Color::from_rgba(
+            0x12 as f32 / 255.0,
+            0x04 as f32 / 255.0,
+            0x08 as f32 / 255.0,
+            0.45,
+        ),
+        offset: Vector::new(0.0, 3.0),
+        blur_radius: 8.0,
+    };
+
+    /// Elevated lift shadow for active / selected cards
+    pub const ELEVATION_CARD_ACTIVE: Shadow = Shadow {
+        color: Color::from_rgba(
+            0x10 as f32 / 255.0,
+            0x02 as f32 / 255.0,
+            0x06 as f32 / 255.0,
+            0.60,
+        ),
+        offset: Vector::new(0.0, 6.0),
+        blur_radius: 16.0,
+    };
+
+    /// Floating header navigation bar shadow
+    pub const ELEVATION_HEADER: Shadow = Shadow {
+        color: Color::from_rgba(
+            0x10 as f32 / 255.0,
+            0x02 as f32 / 255.0,
+            0x06 as f32 / 255.0,
+            0.50,
+        ),
+        offset: Vector::new(0.0, 4.0),
+        blur_radius: 12.0,
+    };
+
+    /// Deep sheet elevation shadow for modal dialogues
+    pub const ELEVATION_MODAL: Shadow = Shadow {
+        color: Color::from_rgba(
+            0x06 as f32 / 255.0,
+            0x01 as f32 / 255.0,
+            0x03 as f32 / 255.0,
+            0.80,
+        ),
+        offset: Vector::new(0.0, 12.0),
+        blur_radius: 30.0,
+    };
+
+    /// Tactile depth shadow for buttons
+    pub const ELEVATION_BUTTON: Shadow = Shadow {
+        color: Color::from_rgba(
+            0x13 as f32 / 255.0,
+            0x24 as f32 / 255.0,
+            0x10 as f32 / 255.0,
+            0.35,
+        ),
+        offset: Vector::new(0.0, 1.5),
+        blur_radius: 3.5,
+    };
+
+    /// Tactile depth shadow for button hover
+    pub const ELEVATION_BUTTON_HOVER: Shadow = Shadow {
+        color: Color::from_rgba(
+            0x13 as f32 / 255.0,
+            0x24 as f32 / 255.0,
+            0x10 as f32 / 255.0,
+            0.48,
+        ),
+        offset: Vector::new(0.0, 2.5),
+        blur_radius: 6.0,
+    };
+
+    /// Tactile depth shadow for button pressed
+    pub const ELEVATION_BUTTON_PRESSED: Shadow = Shadow {
+        color: Color::from_rgba(
+            0x13 as f32 / 255.0,
+            0x24 as f32 / 255.0,
+            0x10 as f32 / 255.0,
+            0.20,
+        ),
+        offset: Vector::new(0.0, 0.5),
+        blur_radius: 1.5,
+    };
+
+    /// Danger button shadow
+    pub const ELEVATION_DANGER: Shadow = Shadow {
+        color: Color::from_rgba(0.50, 0.08, 0.12, 0.35),
+        offset: Vector::new(0.0, 1.5),
+        blur_radius: 4.0,
+    };
+
+    /// Danger button hover shadow
+    pub const ELEVATION_DANGER_HOVER: Shadow = Shadow {
+        color: Color::from_rgba(0.50, 0.08, 0.12, 0.45),
+        offset: Vector::new(0.0, 2.5),
+        blur_radius: 7.0,
+    };
+
+    // -------------------------------------------------------------
     // Styles
     // -------------------------------------------------------------
 
@@ -157,8 +267,9 @@ impl Theme {
             border: Border {
                 color: Self::CARD_BORDER,
                 width: 1.0,
-                radius: 8.0.into(),
+                radius: 10.0.into(),
             },
+            shadow: Self::ELEVATION_CARD,
             ..Default::default()
         }
     }
@@ -170,8 +281,23 @@ impl Theme {
             border: Border {
                 color: Self::PISTACHIO,
                 width: 1.5,
-                radius: 8.0.into(),
+                radius: 10.0.into(),
             },
+            shadow: Self::ELEVATION_CARD_ACTIVE,
+            ..Default::default()
+        }
+    }
+
+    pub fn header_style() -> container::Style {
+        container::Style {
+            background: Some(Background::Color(Self::BURGUNDY_MODAL)),
+            text_color: Some(Self::TEXT_PRIMARY),
+            border: Border {
+                color: Self::BORDER_COLOR,
+                width: 1.0,
+                radius: 12.0.into(),
+            },
+            shadow: Self::ELEVATION_HEADER,
             ..Default::default()
         }
     }
@@ -183,7 +309,27 @@ impl Theme {
             border: Border {
                 color: Self::PISTACHIO,
                 width: 1.5,
-                radius: 12.0.into(),
+                radius: 14.0.into(),
+            },
+            shadow: Self::ELEVATION_MODAL,
+            ..Default::default()
+        }
+    }
+
+    /// Inset sub-card container for modals and dialogs
+    pub fn modal_inset_card_style() -> container::Style {
+        container::Style {
+            background: Some(Background::Color(Self::BURGUNDY_INSET)),
+            text_color: Some(Self::WARM_CREAM),
+            border: Border {
+                color: Self::BORDER_COLOR,
+                width: 1.0,
+                radius: 8.0.into(),
+            },
+            shadow: Shadow {
+                color: Color::from_rgba(0.0, 0.0, 0.0, 0.25),
+                offset: Vector::new(0.0, 1.0),
+                blur_radius: 3.0,
             },
             ..Default::default()
         }
@@ -197,8 +343,9 @@ impl Theme {
                 border: Border {
                     color: Self::PISTACHIO_HOVER,
                     width: 1.0,
-                    radius: 6.0.into(),
+                    radius: 7.0.into(),
                 },
+                shadow: Self::ELEVATION_BUTTON_HOVER,
                 ..Default::default()
             },
             button::Status::Pressed => button::Style {
@@ -207,8 +354,9 @@ impl Theme {
                 border: Border {
                     color: Self::PISTACHIO_PRESSED,
                     width: 1.0,
-                    radius: 6.0.into(),
+                    radius: 7.0.into(),
                 },
+                shadow: Self::ELEVATION_BUTTON_PRESSED,
                 ..Default::default()
             },
             _ => button::Style {
@@ -217,8 +365,9 @@ impl Theme {
                 border: Border {
                     color: Self::PISTACHIO,
                     width: 1.0,
-                    radius: 6.0.into(),
+                    radius: 7.0.into(),
                 },
+                shadow: Self::ELEVATION_BUTTON,
                 ..Default::default()
             },
         }
@@ -232,8 +381,9 @@ impl Theme {
                 border: Border {
                     color: Self::PISTACHIO_HOVER,
                     width: 1.0,
-                    radius: 6.0.into(),
+                    radius: 7.0.into(),
                 },
+                shadow: Self::ELEVATION_BUTTON_HOVER,
                 ..Default::default()
             },
             button::Status::Pressed => button::Style {
@@ -242,8 +392,9 @@ impl Theme {
                 border: Border {
                     color: Self::PISTACHIO_PRESSED,
                     width: 1.0,
-                    radius: 6.0.into(),
+                    radius: 7.0.into(),
                 },
+                shadow: Self::ELEVATION_BUTTON_PRESSED,
                 ..Default::default()
             },
             _ => button::Style {
@@ -252,8 +403,9 @@ impl Theme {
                 border: Border {
                     color: Self::PISTACHIO,
                     width: 1.0,
-                    radius: 6.0.into(),
+                    radius: 7.0.into(),
                 },
+                shadow: Self::ELEVATION_BUTTON,
                 ..Default::default()
             },
         }
@@ -267,8 +419,9 @@ impl Theme {
                 border: Border {
                     color: Self::DANGER_HOVER,
                     width: 1.0,
-                    radius: 6.0.into(),
+                    radius: 7.0.into(),
                 },
+                shadow: Self::ELEVATION_DANGER_HOVER,
                 ..Default::default()
             },
             _ => button::Style {
@@ -277,8 +430,9 @@ impl Theme {
                 border: Border {
                     color: Color::from_rgba(0.8, 0.2, 0.25, 0.6),
                     width: 1.0,
-                    radius: 6.0.into(),
+                    radius: 7.0.into(),
                 },
+                shadow: Self::ELEVATION_DANGER,
                 ..Default::default()
             },
         }
@@ -403,5 +557,198 @@ impl Theme {
                 selection: Self::PISTACHIO,
             },
         }
+    }
+
+    // -------------------------------------------------------------
+    // Scrollable Styling (Apple-design Floating Capsule Scrollbars)
+    // -------------------------------------------------------------
+
+    /// Returns standard slim floating vertical scrollbar geometry (8px width, 6px scroller, 3px margin).
+    pub fn scrollbar_direction() -> scrollable::Direction {
+        scrollable::Direction::Vertical(
+            scrollable::Scrollbar::new()
+                .width(8.0)
+                .scroller_width(6.0)
+                .margin(3.0),
+        )
+    }
+
+    /// Elegant scrollbar style for content on canvas and cream cards.
+    /// Features a transparent track and soft burgundy/mauve capsule scroller with pistachio hover illumination.
+    pub fn scrollable_style(
+        _theme: &iced::Theme,
+        status: scrollable::Status,
+    ) -> scrollable::Style {
+        let (thumb_color, rail_bg) = match status {
+            scrollable::Status::Active { .. } => (
+                // Soft translucent muted burgundy pill floating on cream cards/canvas
+                Color::from_rgba(0.43, 0.32, 0.35, 0.40),
+                None,
+            ),
+            scrollable::Status::Hovered {
+                is_vertical_scrollbar_hovered: true,
+                ..
+            } => (
+                // Luminous pistachio accent on hover
+                Self::PISTACHIO,
+                Some(Background::Color(Color::from_rgba(0.22, 0.07, 0.11, 0.15))),
+            ),
+            scrollable::Status::Hovered { .. } => (
+                Color::from_rgba(0.43, 0.32, 0.35, 0.55),
+                None,
+            ),
+            scrollable::Status::Dragged { .. } => (
+                // Active bright pistachio when dragged
+                Self::PISTACHIO_HOVER,
+                Some(Background::Color(Color::from_rgba(0.22, 0.07, 0.11, 0.22))),
+            ),
+        };
+
+        let rail = scrollable::Rail {
+            background: rail_bg,
+            border: Border {
+                radius: 999.0.into(),
+                width: 0.0,
+                color: Color::TRANSPARENT,
+            },
+            scroller: scrollable::Scroller {
+                background: Background::Color(thumb_color),
+                border: Border {
+                    radius: 999.0.into(),
+                    width: 0.0,
+                    color: Color::TRANSPARENT,
+                },
+            },
+        };
+
+        scrollable::Style {
+            container: container::Style::default(),
+            vertical_rail: rail,
+            horizontal_rail: rail,
+            gap: None,
+            auto_scroll: scrollable::AutoScroll {
+                background: Background::Color(Color::TRANSPARENT),
+                border: Border::default(),
+                shadow: Shadow::default(),
+                icon: Color::TRANSPARENT,
+            },
+        }
+    }
+
+    /// Elegant scrollbar style for dark modal dialogs.
+    /// Features a subtle translucent cream pill with pistachio hover illumination.
+    pub fn modal_scrollable_style(
+        _theme: &iced::Theme,
+        status: scrollable::Status,
+    ) -> scrollable::Style {
+        let (thumb_color, rail_bg) = match status {
+            scrollable::Status::Active { .. } => (
+                // Translucent cream capsule on dark burgundy modal surface
+                Color::from_rgba(0.93, 0.90, 0.82, 0.28),
+                None,
+            ),
+            scrollable::Status::Hovered {
+                is_vertical_scrollbar_hovered: true,
+                ..
+            } => (
+                // Luminous pistachio accent on hover
+                Self::PISTACHIO,
+                Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.25))),
+            ),
+            scrollable::Status::Hovered { .. } => (
+                Color::from_rgba(0.93, 0.90, 0.82, 0.45),
+                None,
+            ),
+            scrollable::Status::Dragged { .. } => (
+                Self::PISTACHIO_HOVER,
+                Some(Background::Color(Color::from_rgba(0.0, 0.0, 0.0, 0.35))),
+            ),
+        };
+
+        let rail = scrollable::Rail {
+            background: rail_bg,
+            border: Border {
+                radius: 999.0.into(),
+                width: 0.0,
+                color: Color::TRANSPARENT,
+            },
+            scroller: scrollable::Scroller {
+                background: Background::Color(thumb_color),
+                border: Border {
+                    radius: 999.0.into(),
+                    width: 0.0,
+                    color: Color::TRANSPARENT,
+                },
+            },
+        };
+
+        scrollable::Style {
+            container: container::Style::default(),
+            vertical_rail: rail,
+            horizontal_rail: rail,
+            gap: None,
+            auto_scroll: scrollable::AutoScroll {
+                background: Background::Color(Color::TRANSPARENT),
+                border: Border::default(),
+                shadow: Shadow::default(),
+                icon: Color::TRANSPARENT,
+            },
+        }
+    }
+
+    // -------------------------------------------------------------
+    // Packaging Tier Origin Badges (Color-coded pills)
+    // -------------------------------------------------------------
+
+    /// Returns the (background_color, text_color) for an application's packaging tier badge by label.
+    pub fn badge_colors_by_label(label: &str) -> (Color, Color) {
+        let lower = label.to_lowercase();
+        let bg = if lower.contains("dnf") || lower.contains("apt") {
+            Color::from_rgb8(16, 185, 129) // Emerald Green (#10b981)
+        } else if lower.contains("flatpak") {
+            Color::from_rgb8(37, 99, 235)  // Royal Blue (#2563eb)
+        } else if lower.contains("snap") {
+            Color::from_rgb8(234, 88, 12)  // Canonical Orange (#ea580c)
+        } else if lower.contains("pacman") {
+            Color::from_rgb8(8, 145, 178)  // Arch Cyan (#0891b2)
+        } else if lower.contains("appimage") {
+            Color::from_rgb8(139, 92, 246) // AppImage Violet (#8b5cf6)
+        } else if lower.contains("bottle") {
+            Color::from_rgb8(190, 24, 93)  // Wine Magenta (#be185d)
+        } else {
+            Color::from_rgb8(71, 85, 105)  // Slate Gray (#475569) for Manual (/opt) & Desktop Entry
+        };
+        (bg, Color::WHITE)
+    }
+
+    /// Returns the (background_color, text_color) for an InstallMethod.
+    pub fn method_badge_colors(method: InstallMethod) -> (Color, Color) {
+        Self::badge_colors_by_label(method.badge_label())
+    }
+
+    /// Builds a styled packaging tier badge container element.
+    pub fn method_badge<'a, Message: 'a>(method: InstallMethod) -> iced::Element<'a, Message> {
+        Self::badge_by_label(method.badge_label())
+    }
+
+    /// Builds a styled packaging tier badge container element from a string label.
+    pub fn badge_by_label<'a, Message: 'a>(label: &'a str) -> iced::Element<'a, Message> {
+        let (bg, fg) = Self::badge_colors_by_label(label);
+        container(
+            iced::widget::text(label)
+                .size(10)
+                .color(fg),
+        )
+        .style(move |_t| container::Style {
+            background: Some(Background::Color(bg)),
+            border: Border {
+                color: Color::TRANSPARENT,
+                width: 0.0,
+                radius: 4.0.into(),
+            },
+            ..Default::default()
+        })
+        .padding([2, 7])
+        .into()
     }
 }

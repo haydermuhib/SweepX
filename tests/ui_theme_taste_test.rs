@@ -22,6 +22,7 @@ fn contrast_ratio(c1: Color, c2: Color) -> f32 {
     (lighter + 0.05) / (darker + 0.05)
 }
 
+
 #[test]
 fn test_palette_color_identity() {
     // 1. Burgundy Canvas & Modal: Red dominant, dark luminance
@@ -149,3 +150,117 @@ fn test_ghost_button_active_state_is_pistachio() {
     assert_eq!(inactive_pill.background, None);
     assert_eq!(inactive_pill.text_color, Theme::TEXT_MUTED);
 }
+
+#[test]
+fn test_apple_design_depth_and_elevation_tokens() {
+    // 1. Card elevation has directional Y offset and diffused blur radius
+    assert!(Theme::ELEVATION_CARD.offset.y > 0.0);
+    assert!(Theme::ELEVATION_CARD.blur_radius >= 6.0);
+    assert!(Theme::card_style().shadow.blur_radius >= 6.0);
+
+    // 2. Active card elevation has greater lift than resting card
+    assert!(Theme::ELEVATION_CARD_ACTIVE.offset.y > Theme::ELEVATION_CARD.offset.y);
+    assert!(Theme::ELEVATION_CARD_ACTIVE.blur_radius > Theme::ELEVATION_CARD.blur_radius);
+
+    // 3. Header floating functional layer has elevation
+    let header = Theme::header_style();
+    assert_eq!(header.background, Some(Background::Color(Theme::BURGUNDY_MODAL)));
+    assert!(header.shadow.blur_radius >= 8.0);
+    assert!(header.border.radius.top_left >= 10.0);
+
+    // 4. Modal dialogue has the deepest elevation sheet shadow
+    let modal = Theme::modal_style();
+    assert!(modal.shadow.blur_radius >= 20.0);
+    assert!(modal.shadow.offset.y >= 10.0);
+
+    // 5. Inset modal container has high contrast for dark modal background
+    let modal_inset = Theme::modal_inset_card_style();
+    assert_eq!(modal_inset.background, Some(Background::Color(Theme::BURGUNDY_INSET)));
+    assert_eq!(modal_inset.text_color, Some(Theme::WARM_CREAM));
+
+    // 6. Buttons have tactile depth shadows
+    let btn_normal = Theme::primary_button(button::Status::Active);
+    let btn_hover = Theme::primary_button(button::Status::Hovered);
+    let btn_pressed = Theme::primary_button(button::Status::Pressed);
+
+    assert!(btn_hover.shadow.offset.y >= btn_normal.shadow.offset.y);
+    assert!(btn_pressed.shadow.offset.y < btn_normal.shadow.offset.y);
+}
+
+#[test]
+fn test_elegant_themed_scrollbar_styles() {
+    let dummy_theme = iced::Theme::Dark;
+
+    // 1. Direction and geometry: slim 8px track, 6px scroller pill, 3px margin
+    let direction = Theme::scrollbar_direction();
+    assert!(matches!(
+        direction,
+        iced::widget::scrollable::Direction::Vertical(_)
+    ));
+
+    // 2. Resting scrollbar on canvas/cards: transparent track, rounded capsule scroller
+    let active_status = iced::widget::scrollable::Status::Active {
+        is_horizontal_scrollbar_disabled: true,
+        is_vertical_scrollbar_disabled: false,
+    };
+    let active_style = Theme::scrollable_style(&dummy_theme, active_status);
+    assert_eq!(active_style.vertical_rail.background, None, "Resting track must be transparent to avoid ugly gray gutters");
+    assert!(active_style.vertical_rail.scroller.border.radius.top_left > 10.0, "Scroller thumb must be a capsule pill");
+
+    // 3. Hovered scrollbar: illuminated pistachio thumb
+    let hovered_status = iced::widget::scrollable::Status::Hovered {
+        is_horizontal_scrollbar_hovered: false,
+        is_vertical_scrollbar_hovered: true,
+        is_horizontal_scrollbar_disabled: true,
+        is_vertical_scrollbar_disabled: false,
+    };
+    let hovered_style = Theme::scrollable_style(&dummy_theme, hovered_status);
+    assert_eq!(
+        hovered_style.vertical_rail.scroller.background,
+        Background::Color(Theme::PISTACHIO),
+        "Hovered scroller must illuminate with pistachio brand accent"
+    );
+
+    // 4. Modal scrollbar: subtle cream capsule for dark modal surfaces
+    let modal_style = Theme::modal_scrollable_style(&dummy_theme, active_status);
+    assert_eq!(modal_style.vertical_rail.background, None);
+    assert!(modal_style.vertical_rail.scroller.border.radius.top_left > 10.0);
+}
+
+#[test]
+fn test_packaging_tier_color_coded_badges() {
+    use sweepx::models::InstallMethod;
+
+    // 1. DNF / APT: Emerald Green
+    let (dnf_bg, dnf_fg) = Theme::method_badge_colors(InstallMethod::NativeDnf);
+    assert_eq!(dnf_fg, Color::WHITE);
+    assert_eq!(dnf_bg, Color::from_rgb8(16, 185, 129));
+
+    // 2. Flatpak: Royal Blue
+    let (flatpak_bg, flatpak_fg) = Theme::method_badge_colors(InstallMethod::Flatpak);
+    assert_eq!(flatpak_fg, Color::WHITE);
+    assert_eq!(flatpak_bg, Color::from_rgb8(37, 99, 235));
+
+    // 3. Snap: Canonical Orange
+    let (snap_bg, snap_fg) = Theme::method_badge_colors(InstallMethod::Snap);
+    assert_eq!(snap_fg, Color::WHITE);
+    assert_eq!(snap_bg, Color::from_rgb8(234, 88, 12));
+
+    // 4. Manual (/opt) & Desktop Entry: Cool Slate Gray
+    let (opt_bg, opt_fg) = Theme::method_badge_colors(InstallMethod::ManualOpt);
+    assert_eq!(opt_fg, Color::WHITE);
+    assert_eq!(opt_bg, Color::from_rgb8(71, 85, 105));
+
+    let (desk_bg, desk_fg) = Theme::method_badge_colors(InstallMethod::CustomDesktop);
+    assert_eq!(desk_fg, Color::WHITE);
+    assert_eq!(desk_bg, Color::from_rgb8(71, 85, 105));
+
+    // 5. AppImage: Violet
+    let (appimage_bg, _) = Theme::method_badge_colors(InstallMethod::AppImage);
+    assert_eq!(appimage_bg, Color::from_rgb8(139, 92, 246));
+
+    // 6. Bottles: Wine Magenta
+    let (bottles_bg, _) = Theme::method_badge_colors(InstallMethod::Bottles);
+    assert_eq!(bottles_bg, Color::from_rgb8(190, 24, 93));
+}
+

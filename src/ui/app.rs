@@ -623,15 +623,7 @@ impl SweepXApp {
         .padding(12);
 
         container(logo_and_title)
-            .style(|_t| container::Style {
-                background: Some(iced::Background::Color(Theme::BURGUNDY_MODAL)),
-                border: iced::border::Border {
-                    color: Theme::BORDER_COLOR,
-                    width: 1.0,
-                    radius: 10.0.into(),
-                },
-                ..Default::default()
-            })
+            .style(|_t| Theme::header_style())
             .width(Length::Fill)
             .into()
     }
@@ -843,6 +835,8 @@ impl SweepXApp {
         }
 
         let scrollable_apps = scrollable(apps_list_col)
+            .direction(Theme::scrollbar_direction())
+            .style(Theme::scrollable_style)
             .width(Length::Fill)
             .height(Length::Fill);
 
@@ -859,21 +853,7 @@ impl SweepXApp {
     }
 
     fn view_application_card<'a>(&'a self, app: &'a Application) -> Element<'a, Message> {
-        let method_badge = container(
-            text(app.install_method.badge_label())
-                .size(10)
-                .color(Theme::WARM_CREAM),
-        )
-        .style(|_t| container::Style {
-            background: Some(iced::Background::Color(Theme::BURGUNDY_CANVAS)),
-            border: iced::border::Border {
-                color: Theme::BORDER_COLOR,
-                width: 1.0,
-                radius: 4.0.into(),
-            },
-            ..Default::default()
-        })
-        .padding([2, 6]);
+        let method_badge = Theme::method_badge(app.install_method);
 
         let desc_text = if let Some(ref d) = app.description {
             d.as_str()
@@ -967,9 +947,9 @@ impl SweepXApp {
 
     fn metric_card<'a>(&'a self, title: &'static str, value: String, subtitle: &'static str, val_color: iced::Color) -> Element<'a, Message> {
         let content = column![
-            text(title).size(11).color(Theme::TEXT_MUTED),
+            text(title).size(11).color(Theme::CARD_TEXT_PRIMARY),
             text(value).size(20).color(val_color),
-            text(subtitle).size(10).color(Theme::TEXT_MUTED),
+            text(subtitle).size(10).color(Theme::CARD_TEXT_MUTED),
         ]
         .spacing(4);
 
@@ -1020,9 +1000,14 @@ impl SweepXApp {
 
         let header = row![
             column![
-                text(format!("Application Inspector — {}", app.display_name))
-                    .size(20)
-                    .color(Theme::WARM_CREAM),
+                row![
+                    text(format!("Application Inspector — {}", app.display_name))
+                        .size(20)
+                        .color(Theme::WARM_CREAM),
+                    Theme::method_badge(app.install_method),
+                ]
+                .spacing(10)
+                .align_y(Alignment::Center),
                 row![
                     text_input("", &app.id)
                         .size(12)
@@ -1064,7 +1049,7 @@ impl SweepXApp {
             .align_y(Alignment::Center)
             .padding(12),
         )
-        .style(|_t| Theme::active_card_style())
+        .style(|_t| Theme::modal_inset_card_style())
         .width(Length::Fill);
 
         // Application Payload Section
@@ -1169,7 +1154,7 @@ impl SweepXApp {
 
                 residuals_list = residuals_list.push(
                     container(res_row)
-                        .style(|_t| Theme::card_style())
+                        .style(|_t| Theme::modal_inset_card_style())
                         .width(Length::Fill),
                 );
             }
@@ -1184,10 +1169,14 @@ impl SweepXApp {
         .spacing(14)
         .padding(20);
 
-        let modal_container = container(scrollable(modal_body))
-            .style(|_t| Theme::modal_style())
-            .width(Length::Fixed(850.0))
-            .max_height(600);
+        let modal_container = container(
+            scrollable(modal_body)
+                .direction(Theme::scrollbar_direction())
+                .style(Theme::modal_scrollable_style),
+        )
+        .style(|_t| Theme::modal_style())
+        .width(Length::Fixed(850.0))
+        .max_height(600);
 
         let backdrop = container(modal_container)
             .width(Length::Fill)
@@ -1269,7 +1258,7 @@ impl SweepXApp {
             .align_y(Alignment::Center)
             .padding(12),
         )
-        .style(|_t| Theme::active_card_style())
+        .style(|_t| Theme::modal_inset_card_style())
         .width(Length::Fill);
 
         // Residual items checklist
@@ -1311,7 +1300,7 @@ impl SweepXApp {
 
                 items_col = items_col.push(
                     container(check_row)
-                        .style(|_t| Theme::card_style())
+                        .style(|_t| Theme::modal_inset_card_style())
                         .padding(8)
                         .width(Length::Fill),
                 );
@@ -1336,7 +1325,10 @@ impl SweepXApp {
         let modal_body = column![
             header,
             summary_banner,
-            scrollable(items_col).height(Length::Fixed(240.0)),
+            scrollable(items_col)
+                .direction(Theme::scrollbar_direction())
+                .style(Theme::modal_scrollable_style)
+                .height(Length::Fixed(240.0)),
             action_buttons,
         ]
         .spacing(14)
@@ -1398,15 +1390,15 @@ impl SweepXApp {
                 column![
                     text("Total Selected Reclaimable Disk Space")
                         .size(11)
-                        .color(Theme::TEXT_MUTED),
+                        .color(Theme::CARD_TEXT_MUTED),
                     text(format_size(total_reclaimable))
                         .size(24)
-                        .color(Theme::WARM_CREAM),
+                        .color(Theme::CARD_TEXT_PRIMARY),
                 ]
                 .width(Length::Fill),
                 text("Zero risk of removing active dependencies or critical user documents.")
                     .size(12)
-                    .color(Theme::OLIVE_SAGE),
+                    .color(Theme::CARD_TEXT_MUTED),
             ]
             .padding(14)
             .align_y(Alignment::Center),
@@ -1475,7 +1467,10 @@ impl SweepXApp {
         column![
             header_row,
             banner,
-            scrollable(items_col).height(Length::Fill),
+            scrollable(items_col)
+                .direction(Theme::scrollbar_direction())
+                .style(Theme::scrollable_style)
+                .height(Length::Fill),
         ]
         .spacing(14)
         .height(Length::Fill)
@@ -1527,13 +1522,7 @@ impl SweepXApp {
                     column![
                         row![
                             text(&entry.app_name).size(15).color(Theme::CARD_TEXT_PRIMARY),
-                            container(text(&entry.install_method).size(10).color(Theme::WARM_CREAM))
-                                .style(|_t| container::Style {
-                                    background: Some(iced::Background::Color(Theme::BURGUNDY_CANVAS)),
-                                    border: iced::border::Border { radius: 4.0.into(), ..Default::default() },
-                                    ..Default::default()
-                                })
-                                .padding([2, 6]),
+                            Theme::badge_by_label(&entry.install_method),
                             text(date_str).size(11).color(Theme::CARD_TEXT_MUTED),
                         ]
                         .spacing(8)
@@ -1565,7 +1554,10 @@ impl SweepXApp {
 
         column![
             header_row,
-            scrollable(list_col).height(Length::Fill),
+            scrollable(list_col)
+                .direction(Theme::scrollbar_direction())
+                .style(Theme::scrollable_style)
+                .height(Length::Fill),
         ]
         .spacing(14)
         .height(Length::Fill)

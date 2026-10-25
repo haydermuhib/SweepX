@@ -133,42 +133,6 @@ pub async fn scan_manual_installations() -> Vec<Application> {
                                 true,
                             ));
 
-                            // Attach associated user config, cache, and data directories if they exist
-                            if let Some(home) = dirs::home_dir() {
-                                let config_path = home.join(".config").join(&clean_name);
-                                if config_path.exists() {
-                                    let c_size = calculate_dir_size(&config_path);
-                                    app.artifacts.push(AppArtifact::new(
-                                        ArtifactKind::ConfigDir,
-                                        config_path,
-                                        c_size,
-                                        true,
-                                    ));
-                                }
-
-                                let data_path = home.join(".local/share").join(&clean_name);
-                                if data_path.exists() {
-                                    let d_size = calculate_dir_size(&data_path);
-                                    app.artifacts.push(AppArtifact::new(
-                                        ArtifactKind::DataDir,
-                                        data_path,
-                                        d_size,
-                                        true,
-                                    ));
-                                }
-
-                                let cache_path = home.join(".cache").join(&clean_name);
-                                if cache_path.exists() {
-                                    let ca_size = calculate_dir_size(&cache_path);
-                                    app.artifacts.push(AppArtifact::new(
-                                        ArtifactKind::CacheDir,
-                                        cache_path,
-                                        ca_size,
-                                        true,
-                                    ));
-                                }
-                            }
-
                             apps.push(app);
                         }
                     }
