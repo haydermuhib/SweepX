@@ -10,7 +10,6 @@
   <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue.svg" alt="License: MIT/Apache-2.0"></a>
   <a href="https://github.com/haydermuhib/SweepX/actions"><img src="https://github.com/haydermuhib/SweepX/actions/workflows/release.yml/badge.svg" alt="Build Status"></a>
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/language-Rust%202024-orange.svg" alt="Language: Rust"></a>
-  <a href="https://haydermuhib.github.io/SweepX/"><img src="https://img.shields.io/badge/Showcase-GitHub%20Pages-success.svg" alt="Showcase"></a>
 </p>
 
 SweepX brings native packages (dpkg, pacman, rpm), Flatpaks, Snaps, standalone AppImages, and manual installations in `/opt` into one interface. It tracks manual builds in real time and strips leftover caches, configs, and orphaned background services when software is removed.
@@ -19,7 +18,6 @@ SweepX brings native packages (dpkg, pacman, rpm), Flatpaks, Snaps, standalone A
 
 ## Quick navigation
 
-- [Interactive Showcase](https://haydermuhib.github.io/SweepX/)
 - [Quick Installation](#quick-installation)
 - [Key Features](#key-features)
 - [Command-Line Interface](#command-line-interface)
@@ -222,7 +220,6 @@ For a comprehensive understanding of the project internals, multi-tier scanning 
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)**: Subsystem breakdown, data flow sequence diagrams, and module responsibilities.
 - **[PRESENTATION.md](PRESENTATION.md)**: Architecture slide deck and technical deep dive for contributors and maintainers.
-- **[Showcase Website](https://haydermuhib.github.io/SweepX/)**: Interactive landing page, feature showcase, and visual tour.
 - **[Machine Documentation](llms.txt)**: Technical context for AI agents and LLM tooling.
 
 ---

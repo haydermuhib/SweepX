@@ -228,7 +228,6 @@ User runs: sweepx watch ./install.sh
 | `sweepx watch --name <app> -- <cmd>` | Real-time installation watcher and snapshot diff |
 
 ### Project Resources & Links
-- 🌐 [Showcase & Website](https://haydermuhib.github.io/SweepX/)
 - 📖 [Architecture & Contributor Guide](ARCHITECTURE.md)
 - 🎨 [Brand Guidelines](assets/logo/BRAND_GUIDELINES.md)
 - 🤖 [LLM Context Specification](llms.txt)

@@ -57,4 +57,3 @@ cargo build --release
 - **Author & Copyright:** Haider Ali Tariq and SweepX Contributors
 - **License:** Dual-licensed under MIT (LICENSE-MIT) and Apache-2.0 (LICENSE-APACHE)
 - **Repository:** https://github.com/haydermuhib/SweepX
-- **Website & Showcase:** https://haydermuhib.github.io/SweepX/
