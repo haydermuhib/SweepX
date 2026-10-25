@@ -298,13 +298,16 @@ pub fn install_assets_to(home: &std::path::Path) -> Result<(), String> {
     let scalable_dir = hicolor_dir.join("scalable/apps");
     let _ = std::fs::create_dir_all(&scalable_dir);
 
-    // Ensure minimal index.theme exists in user hicolor dir so gtk-update-icon-cache does not fail
+    // Repair: Clean up any truncated index.theme or broken icon-theme.cache created by previous SweepX versions.
+    // Truncated themes (listing only scalable/apps) override system hicolor themes and hide all raster PNG icons.
     let index_theme = hicolor_dir.join("index.theme");
-    if !index_theme.exists() {
-        let _ = std::fs::write(
-            &index_theme,
-            "[Icon Theme]\nName=Hicolor\nComment=Fallback theme\nDirectories=scalable/apps\n\n[scalable/apps]\nSize=48\nType=Scalable\nMinSize=16\nMaxSize=512\n",
-        );
+    if index_theme.exists() {
+        if let Ok(content) = std::fs::read_to_string(&index_theme) {
+            if content.contains("Directories=scalable/apps") && content.lines().count() < 25 {
+                let _ = std::fs::remove_file(&index_theme);
+                let _ = std::fs::remove_file(hicolor_dir.join("icon-theme.cache"));
+            }
+        }
     }
 
     let icon_targets = [
@@ -365,10 +368,12 @@ pub fn install_assets_to(home: &std::path::Path) -> Result<(), String> {
     );
     let _ = std::fs::write(&desktop_path, desktop_content);
 
-    // Trigger cache updates if utilities are present
-    let _ = std::process::Command::new("gtk-update-icon-cache")
-        .args(["-f", "-t", hicolor_dir.to_str().unwrap_or("")])
-        .output();
+    // Trigger cache updates if utilities are present and index.theme exists
+    if hicolor_dir.join("index.theme").exists() {
+        let _ = std::process::Command::new("gtk-update-icon-cache")
+            .args(["-f", "-t", hicolor_dir.to_str().unwrap_or("")])
+            .output();
+    }
 
     let _ = std::process::Command::new("update-desktop-database")
         .arg(apps_dir.to_str().unwrap_or(""))

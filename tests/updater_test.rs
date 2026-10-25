@@ -54,13 +54,25 @@ fn test_install_assets_to_refreshes_branding_and_cleans_legacy_pngs() {
     let tmp = tempdir().expect("Failed to create tempdir");
     let home = tmp.path();
 
-    // 1. Create a stale legacy PNG icon that should be cleaned up
+    // 1. Create a stale legacy PNG icon and a truncated index.theme + cache that would break desktop apps
     let stale_png = home.join(".local/share/icons/sweepx.png");
     if let Some(parent) = stale_png.parent() {
         std::fs::create_dir_all(parent).unwrap();
     }
     std::fs::write(&stale_png, "stale png mock bytes").unwrap();
     assert!(stale_png.exists());
+
+    let hicolor_dir = home.join(".local/share/icons/hicolor");
+    std::fs::create_dir_all(&hicolor_dir).unwrap();
+    let broken_index = hicolor_dir.join("index.theme");
+    let broken_cache = hicolor_dir.join("icon-theme.cache");
+    std::fs::write(
+        &broken_index,
+        "[Icon Theme]\nName=Hicolor\nComment=Fallback theme\nDirectories=scalable/apps\n\n[scalable/apps]\nSize=48\nType=Scalable\nMinSize=16\nMaxSize=512\n",
+    ).unwrap();
+    std::fs::write(&broken_cache, "broken-cache").unwrap();
+    assert!(broken_index.exists());
+    assert!(broken_cache.exists());
 
     // 2. Run install_assets_to
     let res = install_assets_to(home);
@@ -73,9 +85,9 @@ fn test_install_assets_to_refreshes_branding_and_cleans_legacy_pngs() {
     assert!(svg_content.contains("<svg"), "Must contain valid SVG XML");
     assert!(svg_content.contains("title-app-icon"), "Must contain brand SVG content");
 
-    // 4. Verify hicolor index.theme was created
-    let index_theme = home.join(".local/share/icons/hicolor/index.theme");
-    assert!(index_theme.exists(), "hicolor/index.theme must exist for icon cache tools");
+    // 4. Verify truncated hicolor index.theme and cache were purged to repair desktop icons
+    assert!(!broken_index.exists(), "Truncated hicolor/index.theme must be removed to avoid shadowing system PNG icons");
+    assert!(!broken_cache.exists(), "Crippled icon-theme.cache must be removed");
 
     // 5. Verify stale legacy PNG was removed
     assert!(!stale_png.exists(), "Stale PNG icon must be deleted");

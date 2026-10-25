@@ -348,21 +348,13 @@ if [ "$INSTALLED_SUCCESS" -eq 0 ]; then
     fi
 fi
 
-# 6. Ensure Theme Index and Application Icon Assets
-run_step "Configuring vector icons and theme index" "
-    if [ ! -f '$HICOLOR_DIR/index.theme' ]; then
-        cat <<'THEME_EOF' > '$HICOLOR_DIR/index.theme'
-[Icon Theme]
-Name=Hicolor
-Comment=Fallback theme
-Directories=scalable/apps
-
-[scalable/apps]
-Size=48
-Type=Scalable
-MinSize=16
-MaxSize=512
-THEME_EOF
+# 6. Configure Application Icon Assets & Clean Corrupted Caches
+run_step "Configuring vector icons and repairing icon caches" "
+    # Repair: Remove any truncated index.theme or broken icon-theme.cache created by previous SweepX versions
+    if [ -f '$HICOLOR_DIR/index.theme' ]; then
+        if grep -q 'Directories=scalable/apps' '$HICOLOR_DIR/index.theme' && [ \"\$(wc -l < '$HICOLOR_DIR/index.theme')\" -lt 25 ]; then
+            rm -f '$HICOLOR_DIR/index.theme' '$HICOLOR_DIR/icon-theme.cache'
+        fi
     fi
 
     cat <<'SVG_EOF' > '$ICONS_DIR/sweepx.svg'
@@ -425,7 +417,7 @@ run_step "Updating desktop and icon caches" "
     if command -v update-desktop-database >/dev/null 2>&1; then
         update-desktop-database '$APPS_DIR' 2>/dev/null || true
     fi
-    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    if [ -f '$HICOLOR_DIR/index.theme' ] && command -v gtk-update-icon-cache >/dev/null 2>&1; then
         gtk-update-icon-cache -f -t '$HICOLOR_DIR' 2>/dev/null || true
     fi
     touch '$HICOLOR_DIR' '$APPS_DIR' 2>/dev/null || true
