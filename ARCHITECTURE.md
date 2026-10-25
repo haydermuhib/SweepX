@@ -10,7 +10,7 @@ This document describes the internal architecture, subsystems, data flow, and fi
 graph TD
     subgraph Entrypoints
         CLI["CLI Entrypoint<br><code>src/cli/mod.rs</code>"]
-        GUI["GUI Application<br><code>src/ui/app.rs</code> (eframe / egui)"]
+        GUI["GUI Application<br><code>src/ui/app.rs</code> (Iced 0.13)"]
     end
 
     subgraph Core Engine
@@ -77,9 +77,9 @@ src/
 │   ├── privilege.rs         # Root elevation manager via pkexec and sudo
 │   └── system_sweep.rs      # System optimizer (old Snaps, unused Flatpaks, package caches)
 ├── tracker/                 # Filesystem snapshot diffing and install watcher
-├── ui/                      # egui / eframe desktop application
-│   ├── app.rs               # Main GUI loop and background worker channel receiver
-│   ├── theme.rs             # Dark theme tokens, typography, and palette
+├── ui/                      # Iced 0.13 desktop application (WGPU backend)
+│   ├── app.rs               # Main GUI loop, async subscription receiver, and tab management
+│   ├── theme.rs             # Brand identity tokens (Deep Burgundy #38121C, Warm Cream #EDE5D2, Pistachio #9ECB82)
 │   └── views/               # Modal dialogs, dashboard table, optimizer, and audit views
 └── updater/                 # Self-updater querying GitHub Releases API
 ```
@@ -152,17 +152,19 @@ Embedded SQLite storage for audit history and installation manifests.
 
 ### 5. User Interface (`src/ui/`)
 
-Desktop interface built on `eframe` and `egui`.
+Desktop interface built on the modern Rust GUI framework `Iced` (0.13) with hardware-accelerated WGPU backend, responsive layout primitives, custom capsule scrollbars, and a bespoke design system.
 
 | File | View / Component | Responsibility |
 | :--- | :--- | :--- |
 | [`src/ui/app.rs`](src/ui/app.rs) | `SweepXApp` | Main event loop, background Tokio channel receiver, and tab management. |
-| [`src/ui/theme.rs`](src/ui/theme.rs) | `Theme` | Dark theme styling tokens, spacing rules, and color palette. |
+| [`src/ui/theme.rs`](src/ui/theme.rs) | `Theme` | Brand design tokens (Deep Burgundy `#38121C` canvas/modals, Warm Cream `#EDE5D2` cards, Pistachio `#9ECB82` action elements), spacing, and widget styling rules. |
 | [`src/ui/views/dashboard.rs`](src/ui/views/dashboard.rs) | `DashboardView` | Application inventory table, packaging tier filter pills, search bar, and summary metric cards. |
 | [`src/ui/views/inspector.rs`](src/ui/views/inspector.rs) | `InspectorModal` | Detailed modal displaying installed application payload, discovered user files, and total combined footprint. |
 | [`src/ui/views/clean_modal.rs`](src/ui/views/clean_modal.rs) | `CleanModal` | Residual selection list, safety check summary, and uninstallation confirmation. |
 | [`src/ui/views/optimizer.rs`](src/ui/views/optimizer.rs) | `OptimizerView` | System bloat cleaner (old Snaps, unused Flatpak runtimes, package manager caches). |
 | [`src/ui/views/history.rs`](src/ui/views/history.rs) | `HistoryView` | Audit log timeline and lifetime storage recovery statistics. |
+
+For complete visual identity specifications, vector marks, and typography guidelines, see **[Brand Guidelines](assets/logo/BRAND_GUIDELINES.md)**.
 
 ---
 

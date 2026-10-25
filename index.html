@@ -14,32 +14,41 @@
 
     <style>
         :root {
-            /* Fiction Design System Tokens */
-            --bg-page: #FFFDF9;
+            /* SweepX Brand Identity Tokens */
+            --bg-page: #FDFBF7;
             --bg-surface: #FFFFFF;
-            --bg-cream: #FFF7EB;
-            --bg-yellow: #FEF08A;
-            --bg-orange: #FFEDD5;
-            --bg-sky: #E0F2FE;
-            --bg-mint: #DCFCE7;
-            --bg-pink: #FFE4E6;
-            --bg-purple: #F3E8FF;
+            --bg-cream: #EDE5D2;
+            --bg-burgundy: #38121C;
+            --bg-wine: #421622;
+            --bg-terminal: #250912;
+            --bg-pistachio-soft: #EEF7EA;
+            --bg-yellow: #EDE5D2;
+            --bg-orange: #F3E8D7;
+            --bg-sky: #E3EDF7;
+            --bg-mint: #E2F0DC;
+            --bg-pink: #F5E5E9;
+            --bg-purple: #ECE4F7;
 
             /* Saturated Brand Accents */
-            --brand-yellow: #FACC15;
-            --brand-orange: #FB923C;
-            --brand-coral: #F43F5E;
-            --brand-sky: #38BDF8;
-            --brand-green: #22C55E;
-            --brand-purple: #A855F7;
-            --brand-dark: #18181B;
+            --brand-yellow: #9ECB82;
+            --brand-pistachio: #9ECB82;
+            --brand-pistachio-hover: #B5DCA0;
+            --brand-orange: #C86D3B;
+            --brand-coral: #B83253;
+            --brand-sky: #3B82F6;
+            --brand-green: #9ECB82;
+            --brand-purple: #8B5CF6;
+            --brand-burgundy: #38121C;
+            --brand-wine: #421622;
+            --brand-cream: #EDE5D2;
+            --brand-dark: #240A12;
 
             /* Borders & Shadows */
-            --border-width: 3px;
-            --border-color: #18181B;
-            --shadow-hard: 5px 5px 0px #18181B;
-            --shadow-hard-sm: 3px 3px 0px #18181B;
-            --shadow-hard-lg: 8px 8px 0px #18181B;
+            --border-width: 2px;
+            --border-color: #38121C;
+            --shadow-hard: 4px 4px 0px #38121C;
+            --shadow-hard-sm: 2px 2px 0px #38121C;
+            --shadow-hard-lg: 6px 6px 0px #38121C;
             --radius-sm: 10px;
             --radius-md: 16px;
             --radius-lg: 24px;
@@ -51,11 +60,10 @@
             --font-mono: 'JetBrains Mono', monospace;
         }
 
-
         /* Sleek scrollbar styling for webkit and firefox */
         html {
             scrollbar-width: thin;
-            scrollbar-color: var(--brand-coral) var(--bg-page);
+            scrollbar-color: var(--brand-pistachio) var(--bg-cream);
         }
 
         ::-webkit-scrollbar {
@@ -64,17 +72,17 @@
         }
 
         ::-webkit-scrollbar-track {
-            background: var(--bg-page);
+            background: var(--bg-cream);
         }
 
         ::-webkit-scrollbar-thumb {
-            background: #E2D9C8;
+            background: var(--brand-pistachio);
             border-radius: 4px;
             border: 1px solid var(--border-color);
         }
 
         ::-webkit-scrollbar-thumb:hover {
-            background: var(--brand-yellow);
+            background: var(--brand-pistachio-hover);
         }
 
         /* Completely hide scrollbars on command bars and terminal blocks */
@@ -102,7 +110,7 @@
             font-size: 16px;
             line-height: 1.6;
             overflow-x: hidden;
-            background-image: radial-gradient(#E2D9C8 1.5px, transparent 1.5px);
+            background-image: radial-gradient(#E8DFCE 1.5px, transparent 1.5px);
             background-size: 24px 24px;
         }
 
@@ -150,14 +158,15 @@
         .logo-badge {
             width: 44px;
             height: 44px;
-            background: var(--brand-yellow);
+            background: var(--bg-burgundy);
             border: var(--border-width) solid var(--border-color);
             border-radius: var(--radius-sm);
             box-shadow: var(--shadow-hard-sm);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 22px;
+            overflow: hidden;
+            padding: 6px;
         }
 
         .nav-links {
@@ -175,7 +184,7 @@
         }
 
         .nav-links a:hover {
-            background: var(--bg-yellow);
+            background: var(--bg-cream);
         }
 
         .btn-nav-gh {
@@ -195,8 +204,9 @@
 
         .btn-nav-gh:hover {
             transform: translate(-2px, -2px);
-            box-shadow: 5px 5px 0px var(--border-color);
-            background: var(--bg-yellow);
+            box-shadow: 4px 4px 0px var(--border-color);
+            background: var(--brand-pistachio);
+            color: var(--brand-burgundy);
         }
 
         .btn-nav-gh:active {
@@ -232,9 +242,9 @@
             text-transform: uppercase;
         }
 
-        .tag-rust { background: #FED7AA; }
-        .tag-gui { background: #E0E7FF; }
-        .tag-safe { background: #BBF7D0; }
+        .tag-rust { background: #EDE5D2; color: #38121C; }
+        .tag-gui { background: #EEF7EA; color: #204018; }
+        .tag-safe { background: #F5E5E9; color: #421622; }
 
         .hero-title {
             font-family: var(--font-display);
@@ -310,8 +320,8 @@
         .cmd-bar {
             display: flex;
             align-items: center;
-            background: #18181B;
-            color: #FAFAFA;
+            background: var(--bg-terminal);
+            color: #EDE5D2;
             padding: 14px 18px;
             border-radius: var(--radius-md);
             border: var(--border-width) solid var(--border-color);
@@ -843,8 +853,8 @@
 
         /* Code Snippet */
         pre.code-block {
-            background: #18181B;
-            color: #F4F4F5;
+            background: var(--bg-terminal);
+            color: #EDE5D2;
             padding: 16px 20px;
             border-radius: var(--radius-sm);
             border: 2px solid var(--border-color);
@@ -919,8 +929,8 @@
     <nav class="navbar">
         <div class="container nav-inner">
             <div class="logo-wrap">
-                <div class="logo-badge"><img src="assets/icons/sweepx.svg" width="28" height="28" alt="SweepX Logo" style="display:block;"></div>
-                <span>SweepX</span>
+                <div class="logo-badge"><img src="assets/icons/sweepx.svg" width="30" height="30" alt="SweepX Logo" style="display:block;"></div>
+                <span>Sweep<span style="color: var(--brand-pistachio);">X</span></span>
             </div>
             <div class="nav-links">
                 <a href="#features">Features</a>
@@ -940,7 +950,7 @@
     <header class="hero">
         <div class="container">
             <div class="hero-badge-row">
-                <span class="tag-pill tag-rust">🦀 Pure Rust (eframe / egui)</span>
+                <span class="tag-pill tag-rust">🦀 Pure Rust (Iced GUI)</span>
                 <span class="tag-pill tag-gui">⚡ Realtime Watcher</span>
                 <span class="tag-pill tag-safe">🛡️ Safe Residual Purge</span>
             </div>
@@ -1189,10 +1199,10 @@
                 <div class="fiction-card">
                     <div class="card-icon-box icon-orange">🎨</div>
                     <h3 class="card-title">Native Rust GUI & CLI</h3>
-                    <p class="card-text">Use the smooth 60 FPS eframe GUI or automate maintenance through flexible terminal subcommands.</p>
+                    <p class="card-text">Use the smooth 60 FPS Iced GUI or automate maintenance through flexible terminal subcommands.</p>
                     <div class="card-chips">
-                        <span class="chip">eframe</span>
-                        <span class="chip">egui</span>
+                        <span class="chip">Iced 0.13</span>
+                        <span class="chip">WGPU</span>
                         <span class="chip">CLI Subcommands</span>
                     </div>
                 </div>
@@ -1279,7 +1289,7 @@ sweepx update</pre>
     <footer class="footer">
         <div class="container footer-inner">
             <div>
-                <div class="footer-brand" style="display:flex;align-items:center;gap:8px;"><img src="assets/icons/sweepx.svg" width="24" height="24" alt="SweepX Logo"> SweepX</div>
+                <div class="footer-brand" style="display:flex;align-items:center;gap:8px;"><img src="assets/icons/sweepx.svg" width="24" height="24" alt="SweepX Logo"> Sweep<span style="color: var(--brand-pistachio);">X</span></div>
                 <div style="font-size: 13px; color: #666; margin-top: 4px;">
                     Dual-licensed under MIT and Apache-2.0. Copyright © Haider Ali Tariq.
                 </div>

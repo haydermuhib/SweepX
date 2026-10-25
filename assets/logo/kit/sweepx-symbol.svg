@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title-sym-color">
+  <title id="title-sym-color">SweepX Orbital Reticle (Color)</title>
+  <!-- Center Core Optical Scanner Lens -->
+  <circle cx="128" cy="128" r="20" fill="#38121c"/>
+
+  <!-- Outer Orbital Tier (Radius 98, stroke 18): Native & System Packages Layer -->
+  <path fill="none" stroke="#38121c" stroke-width="18" stroke-linecap="round" d="
+    M 86 58 A 96 96 0 0 1 170 58
+  "/>
+  <path fill="none" stroke="#38121c" stroke-width="18" stroke-linecap="round" d="
+    M 86 198 A 96 96 0 0 0 170 198
+  "/>
+  <path fill="none" stroke="#38121c" stroke-width="18" stroke-linecap="round" d="
+    M 58 86 A 96 96 0 0 0 58 170
+  "/>
+  <path fill="none" stroke="#38121c" stroke-width="18" stroke-linecap="round" d="
+    M 198 86 A 96 96 0 0 1 198 170
+  "/>
+
+  <!-- Inner Orbital Tier (Radius 60, stroke 14): Sandboxes & Containers Layer -->
+  <path fill="none" stroke="#38121c" stroke-width="14" stroke-linecap="round" d="
+    M 98 84 A 56 56 0 0 1 158 84
+  "/>
+  <path fill="none" stroke="#38121c" stroke-width="14" stroke-linecap="round" d="
+    M 98 172 A 56 56 0 0 0 158 172
+  "/>
+  <path fill="none" stroke="#38121c" stroke-width="14" stroke-linecap="round" d="
+    M 84 98 A 56 56 0 0 0 84 158
+  "/>
+  <path fill="none" stroke="#38121c" stroke-width="14" stroke-linecap="round" d="
+    M 172 98 A 56 56 0 0 1 172 158
+  "/>
+
+  <!-- The 45° Kinetic Radar Sweep Beam in Pistachio Accent -->
+  <rect x="118" y="24" width="20" height="208" rx="10" transform="rotate(-45 128 128)" fill="#9ecb82"/>
+</svg>

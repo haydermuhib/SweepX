@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256"><title>SweepX</title><g transform="translate(-60.16 -60.16) scale(1.47)">
+  <title id="title-sym-small">SweepX Orbital Reticle (Favicon / Small Cut)</title>
+  <!-- Bold Core -->
+  <circle cx="128" cy="128" r="30" fill="#38121c"/>
+
+  <!-- High-contrast single outer tier (Radius 88, stroke 28) -->
+  <path fill="none" stroke="#38121c" stroke-width="28" stroke-linecap="round" d="
+    M 80 60 A 88 88 0 0 1 176 60
+  "/>
+  <path fill="none" stroke="#38121c" stroke-width="28" stroke-linecap="round" d="
+    M 80 196 A 88 88 0 0 0 176 196
+  "/>
+  <path fill="none" stroke="#38121c" stroke-width="28" stroke-linecap="round" d="
+    M 60 80 A 88 88 0 0 0 60 176
+  "/>
+  <path fill="none" stroke="#38121c" stroke-width="28" stroke-linecap="round" d="
+    M 196 80 A 88 88 0 0 1 196 176
+  "/>
+
+  <!-- Bold 45° Sweep Blade -->
+  <rect x="113" y="16" width="30" height="224" rx="15" transform="rotate(-45 128 128)" fill="#9ecb82"/>
+</g></svg>

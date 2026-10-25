@@ -1,11 +1,17 @@
-# SweepX
+<p align="center">
+  <img src="assets/logo/kit/sweepx-lockup-banner.svg" alt="SweepX Logo" width="720"/>
+</p>
 
-> Unified Linux application tracker, live installation watcher, and deep residual uninstaller in pure Rust.
+<p align="center">
+  <strong>Unified Linux application tracker, live installation watcher, and deep residual uninstaller in pure Rust.</strong>
+</p>
 
-[![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue.svg)](LICENSE-MIT)
-[![Build Status](https://github.com/haydermuhib/SweepX/actions/workflows/release.yml/badge.svg)](https://github.com/haydermuhib/SweepX/actions)
-[![Language: Rust](https://img.shields.io/badge/language-Rust%202024-orange.svg)](https://www.rust-lang.org/)
-[![Showcase](https://img.shields.io/badge/Showcase-GitHub%20Pages-success.svg)](https://haydermuhib.github.io/SweepX/)
+<p align="center">
+  <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue.svg" alt="License: MIT/Apache-2.0"></a>
+  <a href="https://github.com/haydermuhib/SweepX/actions"><img src="https://github.com/haydermuhib/SweepX/actions/workflows/release.yml/badge.svg" alt="Build Status"></a>
+  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/language-Rust%202024-orange.svg" alt="Language: Rust"></a>
+  <a href="https://haydermuhib.github.io/SweepX/"><img src="https://img.shields.io/badge/Showcase-GitHub%20Pages-success.svg" alt="Showcase"></a>
+</p>
 
 SweepX brings native packages (dpkg, pacman, rpm), Flatpaks, Snaps, standalone AppImages, and manual installations in `/opt` into one interface. It tracks manual builds in real time and strips leftover caches, configs, and orphaned background services when software is removed.
 
@@ -19,6 +25,7 @@ SweepX brings native packages (dpkg, pacman, rpm), Flatpaks, Snaps, standalone A
 - [Command-Line Interface](#command-line-interface)
 - [Building from Source](#building-from-source)
 - [Architecture & Contributor Guide](ARCHITECTURE.md)
+- [Brand Guidelines](assets/logo/BRAND_GUIDELINES.md)
 - [LLM Specification](llms.txt)
 - [License](#license)
 
@@ -155,7 +162,7 @@ sweepx update
 git clone https://github.com/haydermuhib/SweepX.git
 cd SweepX
 
-# Run test suite (30 unit & integration tests)
+# Run test suite (74 unit, integration, and footprint tests)
 cargo test
 
 # Build optimized release binary
@@ -178,7 +185,7 @@ cargo build --release
                ┌───────────────┴───────────────┐
                ▼                               ▼
    ┌───────────────────────┐       ┌───────────────────────┐
-   │     eframe / egui     │       │    clap CLI Runner    │
+   │    Iced GUI Engine    │       │    clap CLI Runner    │
    │    Desktop GUI App    │       │     (Subcommands)     │
    └───────────┬───────────┘       └───────────┬───────────┘
                │                               │

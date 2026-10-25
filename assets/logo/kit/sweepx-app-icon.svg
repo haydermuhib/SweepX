@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="title-app-icon">
+  <title id="title-app-icon">SweepX Application Icon</title>
+  <defs>
+    <radialGradient id="tile-grad" cx="50%" cy="30%" r="75%">
+      <stop offset="0%" stop-color="#4a1827"/>
+      <stop offset="100%" stop-color="#2a0d15"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Squircle Base Tile (512x512 with 114px radius = Apple/GNOME modern HIG squircle) -->
+  <rect x="24" y="24" width="464" height="464" rx="114" fill="url(#tile-grad)" stroke="#ede5d2" stroke-opacity="0.15" stroke-width="3"/>
+
+  <!-- Symbol Graphic: Centered in 512x512 space (scaled 1.4x from 256x256) -->
+  <g transform="translate(256, 256) scale(1.4) translate(-128, -128)">
+    <!-- Core Lens -->
+    <circle cx="128" cy="128" r="20" fill="#ede5d2"/>
+
+    <!-- Outer Orbital Tier -->
+    <path fill="none" stroke="#ede5d2" stroke-width="18" stroke-linecap="round" d="
+      M 86 58 A 96 96 0 0 1 170 58
+    "/>
+    <path fill="none" stroke="#ede5d2" stroke-width="18" stroke-linecap="round" d="
+      M 86 198 A 96 96 0 0 0 170 198
+    "/>
+    <path fill="none" stroke="#ede5d2" stroke-width="18" stroke-linecap="round" d="
+      M 58 86 A 96 96 0 0 0 58 170
+    "/>
+    <path fill="none" stroke="#ede5d2" stroke-width="18" stroke-linecap="round" d="
+      M 198 86 A 96 96 0 0 1 198 170
+    "/>
+
+    <!-- Inner Orbital Tier -->
+    <path fill="none" stroke="#ede5d2" stroke-width="14" stroke-linecap="round" d="
+      M 98 84 A 56 56 0 0 1 158 84
+    "/>
+    <path fill="none" stroke="#ede5d2" stroke-width="14" stroke-linecap="round" d="
+      M 98 172 A 56 56 0 0 0 158 172
+    "/>
+    <path fill="none" stroke="#ede5d2" stroke-width="14" stroke-linecap="round" d="
+      M 84 98 A 56 56 0 0 0 84 158
+    "/>
+    <path fill="none" stroke="#ede5d2" stroke-width="14" stroke-linecap="round" d="
+      M 172 98 A 56 56 0 0 1 172 158
+    "/>
+
+    <!-- Kinetic Purge Sweep Blade in Pistachio Accent -->
+    <rect x="118" y="24" width="20" height="208" rx="10" transform="rotate(-45 128 128)" fill="#9ecb82"/>
+  </g>
+</svg>

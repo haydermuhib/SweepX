@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-labelledby="title-sym-blk">
+  <title id="title-sym-blk">SweepX Orbital Reticle (Black)</title>
+  <circle cx="128" cy="128" r="20" fill="#000000"/>
+  <path fill="none" stroke="#000000" stroke-width="18" stroke-linecap="round" d="
+    M 86 58 A 96 96 0 0 1 170 58
+  "/>
+  <path fill="none" stroke="#000000" stroke-width="18" stroke-linecap="round" d="
+    M 86 198 A 96 96 0 0 0 170 198
+  "/>
+  <path fill="none" stroke="#000000" stroke-width="18" stroke-linecap="round" d="
+    M 58 86 A 96 96 0 0 0 58 170
+  "/>
+  <path fill="none" stroke="#000000" stroke-width="18" stroke-linecap="round" d="
+    M 198 86 A 96 96 0 0 1 198 170
+  "/>
+  <path fill="none" stroke="#000000" stroke-width="14" stroke-linecap="round" d="
+    M 98 84 A 56 56 0 0 1 158 84
+  "/>
+  <path fill="none" stroke="#000000" stroke-width="14" stroke-linecap="round" d="
+    M 98 172 A 56 56 0 0 0 158 172
+  "/>
+  <path fill="none" stroke="#000000" stroke-width="14" stroke-linecap="round" d="
+    M 84 98 A 56 56 0 0 0 84 158
+  "/>
+  <path fill="none" stroke="#000000" stroke-width="14" stroke-linecap="round" d="
+    M 172 98 A 56 56 0 0 1 172 158
+  "/>
+  <rect x="118" y="24" width="20" height="208" rx="10" transform="rotate(-45 128 128)" fill="#000000"/>
+</svg>

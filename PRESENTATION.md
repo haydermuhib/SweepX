@@ -10,11 +10,11 @@
 ## Agenda
 
 1. Multi-Tier Scanner Architecture (3 min)
-2. Package Manager and Container Discovery (3 min)
+2. Package Manager and Container Discovery (2 min)
 3. Residual Discovery Engine and Isolation Rules (3 min)
-4. Safety Barrier and Deletion Guardrails (3 min)
-5. Installation Watcher and SQLite Audit History (2 min)
-6. Contributing and Subsystem Reference (1 min)
+4. Safety Barrier and Deletion Guardrails (2 min)
+5. Transparent Footprint Accounting & Hardware-Accelerated Iced UI (3 min)
+6. Installation Watcher, SQLite Audit History, and Contributing (2 min)
 
 **Total: 15 minutes**
 
@@ -39,7 +39,7 @@ SweepX uses an asynchronous orchestrator ([`src/scanner/orchestrator.rs`](src/sc
 ```
 
 <details>
-<summary><b>Pipeline Execution Details</b></summary>
+<summary><b>⚡ Pipeline Execution Details</b></summary>
 
 - Asynchronous execution: Spawns non-blocking tasks via Tokio.
 - Native deduplication: Merges `.desktop` launchers with underlying native packages using binary paths, package IDs, and name matching.
@@ -65,7 +65,7 @@ SweepX discovers installed software across multiple packaging systems:
 | **Desktop Launchers** | [`src/scanner/desktop_entry.rs`](src/scanner/desktop_entry.rs) | `~/.local/share/applications`, `/usr/share/applications` |
 
 <details>
-<summary><b>Metadata Extracted Per Application</b></summary>
+<summary><b>📦 Metadata Extracted Per Application</b></summary>
 
 - Application Name and Description: Read from package headers or `.desktop` files.
 - Icon Paths: Resolves system icons, scalable SVGs in `~/.local/share/icons/`, and pixmaps.
@@ -99,7 +99,7 @@ When an application is inspected or queued for cleaning, [`src/cleaner/heuristic
 ```
 
 <details>
-<summary><b>Container Isolation and Anchor Firewall</b></summary>
+<summary><b>🛡️ Container Isolation and Anchor Firewall</b></summary>
 
 - Container isolation: Flatpaks only discover `~/.var/app/<app_id>`. Snaps only discover `~/snap/<app_name>`.
 - Shared repository protection: Shared directories like `~/.cache/flatpak` and `~/.local/share/flatpak` are never scanned as per-app residuals.
@@ -131,7 +131,7 @@ Target Deletion Path ──▶ [ Safety Barrier Validation ]
 ```
 
 <details>
-<summary><b>Protected Directory Rules</b></summary>
+<summary><b>🔒 Protected Directory Rules</b></summary>
 
 ```rust
 // Examples of protected paths blocked by SafetyValidator
@@ -148,9 +148,9 @@ const PROTECTED_SYSTEM_DIRS: &[&str] = &[
 
 ---
 
-## 5. Transparent Footprint Accounting
+## 5. Transparent Footprint Accounting & Hardware-Accelerated Iced UI
 
-SweepX computes storage footprints using exact addition in [`src/ui/views/inspector.rs`](src/ui/views/inspector.rs):
+SweepX computes storage footprints using exact addition in [`src/ui/views/inspector.rs`](src/ui/views/inspector.rs) and renders them through a custom hardware-accelerated GUI built with **Iced 0.13**:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -164,6 +164,20 @@ SweepX computes storage footprints using exact addition in [`src/ui/views/inspec
 │  📊 Total Footprint = 433.7 MB + 5.10 GB + 4.09 GB = 9.62 GB│
 └─────────────────────────────────────────────────────────────┘
 ```
+
+<details>
+<summary><b>🎨 Iced GUI Architecture & Brand Design System</b></summary>
+
+- **Framework:** `iced 0.13` with WGPU backend for 60 FPS rendering across Wayland and X11.
+- **Asynchronous Data Feeds:** Non-blocking Tokio worker thread subscriptions send scan results and deletion progress via `iced::Subscription`.
+- **Official Brand Palette:**
+  - **Deep Burgundy (`#38121C`):** High-density canvas background, command terminals, and dark surfaces.
+  - **Warm Cream (`#EDE5D2`):** Primary card surfaces, modal headers, and high-contrast typography.
+  - **Pistachio Green (`#9ECB82`):** Interactive sweep buttons, active purge highlights, and the signature "X".
+  - **Rich Wine (`#421622`):** Elevated modal cards, status pills, and border accents.
+- **Iconography:** "The Orbital Reticle" vector app mark featuring concentric radar scan sweeps and a 45° purge crosshair. See [`assets/logo/BRAND_GUIDELINES.md`](assets/logo/BRAND_GUIDELINES.md).
+
+</details>
 
 ---
 
@@ -194,7 +208,40 @@ User runs: sweepx watch ./install.sh
 | **Safety Barrier** | `src/cleaner/safety.rs` | Blocks deletion of critical system and container paths |
 | **Install Tracker** | `src/tracker/snapshot.rs` | Pre/post install directory diffing for clean removals |
 | **Database Audit** | `src/db/repository.rs` | SQLite store for manifests and recovered space metrics |
+| **Iced Desktop UI** | `src/ui/` | 60 FPS WGPU desktop interface with Burgundy/Cream/Pistachio design system |
+| **Brand Identity** | `assets/logo/` | Production vector kit, Orbital Reticle mark, and brand guidelines |
 
 ---
 
-*Prepared for SweepX Engineering and Architecture Review.*
+## Quick Reference Card
+
+### Essential CLI Commands
+| Command | Action |
+| :--- | :--- |
+| `sweepx` | Launch the hardware-accelerated desktop GUI |
+| `sweepx list [--filter <type>] [--json]` | Query unified software inventory across all packaging tiers |
+| `sweepx inspect <app_id>` | Detailed footprint analysis & artifact breakdown |
+| `sweepx clean <app_id> [--dry-run]` | Purge leftover configuration and cache trees |
+| `sweepx sweep [--dry-run]` | System optimizer (old Snaps, unused Flatpaks, PM caches) |
+| `sweepx watch --name <app> -- <cmd>` | Real-time installation watcher and snapshot diff |
+
+### Project Resources & Links
+- 🌐 [Showcase & Website](https://haydermuhib.github.io/SweepX/)
+- 📖 [Architecture & Contributor Guide](ARCHITECTURE.md)
+- 🎨 [Brand Guidelines](assets/logo/BRAND_GUIDELINES.md)
+- 🤖 [LLM Context Specification](llms.txt)
+- 🐙 [GitHub Repository](https://github.com/haydermuhib/SweepX)
+
+---
+
+## Questions & Discussion
+
+### Contact & Channels
+- **Author & Maintainer:** Haider Ali Tariq
+- **Issue Tracker & Discussions:** [GitHub Issues](https://github.com/haydermuhib/SweepX/issues)
+- **License:** Dual-licensed under MIT and Apache-2.0
+
+---
+
+*Presentation created: 2026-09-23 (Updated 2026-10-25)*  
+*Built with [markdown-presentation@plinde/claude-plugins](https://github.com/plinde/claude-plugins/tree/main/markdown-presentation)*

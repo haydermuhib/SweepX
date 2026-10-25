@@ -1566,6 +1566,9 @@ impl SweepXApp {
 }
 
 pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
+    // Ensure application icons and desktop entry reflect the current official branding
+    let _ = crate::updater::update_installed_assets();
+
     iced::application(SweepXApp::new, SweepXApp::update, SweepXApp::view)
         .title("SweepX — Unified Linux App Tracker & Deep Purge")
         .window(iced::window::Settings {

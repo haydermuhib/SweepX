@@ -1,40 +1,49 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-labelledby="title-app-icon">
+  <title id="title-app-icon">SweepX Application Icon</title>
   <defs>
-    <linearGradient id="bg-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1e1b4b"/>
-      <stop offset="50%" stop-color="#0f172a"/>
-      <stop offset="100%" stop-color="#020617"/>
-    </linearGradient>
-    <linearGradient id="bolt-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#38bdf8"/>
-      <stop offset="50%" stop-color="#6366f1"/>
-      <stop offset="100%" stop-color="#a855f7"/>
-    </linearGradient>
-    <linearGradient id="glow-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#00f2fe"/>
-      <stop offset="100%" stop-color="#4facfe"/>
-    </linearGradient>
-    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="12" result="blur" />
-      <feComposite in="SourceGraphic" in2="blur" operator="over" />
-    </filter>
+    <radialGradient id="tile-grad" cx="50%" cy="30%" r="75%">
+      <stop offset="0%" stop-color="#4a1827"/>
+      <stop offset="100%" stop-color="#2a0d15"/>
+    </radialGradient>
   </defs>
 
-  <!-- Squircle Base Container -->
-  <rect x="32" y="32" width="448" height="448" rx="100" fill="url(#bg-grad)" stroke="#38bdf8" stroke-opacity="0.3" stroke-width="6"/>
+  <!-- Squircle Base Tile (512x512 with 114px radius = Apple/GNOME modern HIG squircle) -->
+  <rect x="24" y="24" width="464" height="464" rx="114" fill="url(#tile-grad)" stroke="#ede5d2" stroke-opacity="0.15" stroke-width="3"/>
 
-  <!-- Subtle Inner Ring -->
-  <circle cx="256" cy="256" r="160" fill="none" stroke="#6366f1" stroke-opacity="0.15" stroke-width="4" stroke-dasharray="12 8"/>
+  <!-- Symbol Graphic: Centered in 512x512 space (scaled 1.4x from 256x256) -->
+  <g transform="translate(256, 256) scale(1.4) translate(-128, -128)">
+    <!-- Core Lens -->
+    <circle cx="128" cy="128" r="20" fill="#ede5d2"/>
 
-  <!-- Glow Backdrop -->
-  <path d="M280 80 L160 270 L250 270 L230 432 L350 242 L260 242 Z" fill="url(#glow-grad)" opacity="0.4" filter="url(#glow)"/>
+    <!-- Outer Orbital Tier -->
+    <path fill="none" stroke="#ede5d2" stroke-width="18" stroke-linecap="round" d="
+      M 86 58 A 96 96 0 0 1 170 58
+    "/>
+    <path fill="none" stroke="#ede5d2" stroke-width="18" stroke-linecap="round" d="
+      M 86 198 A 96 96 0 0 0 170 198
+    "/>
+    <path fill="none" stroke="#ede5d2" stroke-width="18" stroke-linecap="round" d="
+      M 58 86 A 96 96 0 0 0 58 170
+    "/>
+    <path fill="none" stroke="#ede5d2" stroke-width="18" stroke-linecap="round" d="
+      M 198 86 A 96 96 0 0 1 198 170
+    "/>
 
-  <!-- Main Energy Bolt -->
-  <path d="M280 80 L160 270 L250 270 L230 432 L350 242 L260 242 Z" fill="url(#bolt-grad)" stroke="#ffffff" stroke-width="3" stroke-linejoin="round"/>
+    <!-- Inner Orbital Tier -->
+    <path fill="none" stroke="#ede5d2" stroke-width="14" stroke-linecap="round" d="
+      M 98 84 A 56 56 0 0 1 158 84
+    "/>
+    <path fill="none" stroke="#ede5d2" stroke-width="14" stroke-linecap="round" d="
+      M 98 172 A 56 56 0 0 0 158 172
+    "/>
+    <path fill="none" stroke="#ede5d2" stroke-width="14" stroke-linecap="round" d="
+      M 84 98 A 56 56 0 0 0 84 158
+    "/>
+    <path fill="none" stroke="#ede5d2" stroke-width="14" stroke-linecap="round" d="
+      M 172 98 A 56 56 0 0 1 172 158
+    "/>
 
-  <!-- Modern Sweep Particle Accents -->
-  <circle cx="360" cy="140" r="8" fill="#38bdf8" opacity="0.8"/>
-  <circle cx="390" cy="180" r="5" fill="#818cf8" opacity="0.6"/>
-  <circle cx="130" cy="360" r="7" fill="#a855f7" opacity="0.7"/>
-  <circle cx="160" cy="400" r="4" fill="#38bdf8" opacity="0.5"/>
+    <!-- Kinetic Purge Sweep Blade in Pistachio Accent -->
+    <rect x="118" y="24" width="20" height="208" rx="10" transform="rotate(-45 128 128)" fill="#9ecb82"/>
+  </g>
 </svg>
