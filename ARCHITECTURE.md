@@ -10,7 +10,7 @@ This document describes the internal architecture, subsystems, data flow, and fi
 graph TD
     subgraph Entrypoints
         CLI["CLI Entrypoint<br><code>src/cli/mod.rs</code>"]
-        GUI["GUI Application<br><code>src/ui/app.rs</code> (Iced 0.13)"]
+        GUI["GUI Application<br><code>src/ui/app.rs</code> (Iced 0.14)"]
     end
 
     subgraph Core Engine
@@ -25,7 +25,8 @@ graph TD
     subgraph Data Sources and Systems
         NativePM["Native PMs<br>(dpkg / pacman / rpm)"]
         Containers["Containers<br>(Flatpak / Snap)"]
-        Filesystem["Filesystem<br>(/opt, ~/.local/bin, AppImages)"]
+        Bottles["Bottles Wine Apps<br>(~/.var/app/.../bottles)"]
+        Filesystem["Filesystem<br>(/opt, ~/.local/bin, ~/.cargo/bin, AppImages)"]
         XDG["XDG Tree and Services<br>(~/.config, ~/.cache, systemd)"]
     end
 
@@ -41,6 +42,7 @@ graph TD
 
     Scanner --> NativePM
     Scanner --> Containers
+    Scanner --> Bottles
     Scanner --> Filesystem
 
     Tracker --> DB
@@ -58,30 +60,42 @@ src/
 ├── main.rs                  # Application entry point, CLI routing, and GUI launch
 ├── lib.rs                   # Library exports and shared module definitions
 ├── cli/                     # CLI parser, command handlers, and terminal output
+│   ├── commands.rs          # Subcommands definition using clap
+│   └── mod.rs               # Terminal UI, progress reporting, tables, and execution
 ├── db/                      # SQLite database connection, schema, and queries
-├── models/                  # Core domain models (Application, Artifact, Residual, SizeUnitSystem)
+│   ├── schema.rs            # Table migrations (install_manifests, manifest_files, audit_logs)
+│   └── repository.rs        # Database methods, audit logging, and recovered space calculations
+├── models/                  # Core domain models
+│   ├── app.rs               # Application sum type, InstallMethod, and SizeUnitSystem
+│   ├── artifact.rs          # AppArtifact and ArtifactKind definitions
+│   ├── residual.rs          # ResidualCandidate and file category types
+│   └── mod.rs               # Pure formatting utilities (format_size_with_unit)
 ├── scanner/                 # Discovery engines across all packaging tiers
 │   ├── orchestrator.rs      # Multi-tier async scanner, deduplicator, and container insulator
 │   ├── desktop_entry.rs     # Freedesktop .desktop parser and icon resolver
 │   ├── flatpak.rs           # Flatpak CLI client and runtime parser
 │   ├── snap.rs              # Snap CLI client and revision tracker
+│   ├── bottles.rs           # Bottles Wine prefix scanner and YAML parser
 │   ├── appimage.rs          # AppImage detector, ELF header parser, and integrator
-│   ├── manual.rs            # User-space $PATH and /opt scanner with package ownership check
+│   ├── manual.rs            # User-space $PATH, shell profile, and /opt scanner
 │   ├── symlink_graph.rs     # Stow-style symlink graph resolver
 │   └── native/              # Package manager clients (dpkg, rpm, pacman)
 ├── cleaner/                 # Residual detection, safety validator, and executor
 │   ├── safety.rs            # Zero-tolerance safety validator and protected path blacklist
 │   ├── heuristic.rs         # Isolated container, XDG, and dotdir residual crawler
 │   ├── signatures.rs        # Known directory patterns dictionary for complex apps
-│   ├── executor.rs          # Reversible Trash and permanent file removal executor
+│   ├── executor.rs          # Physical package purge, trash, and permanent deletion
 │   ├── privilege.rs         # Root elevation manager via pkexec and sudo
 │   └── system_sweep.rs      # System optimizer (old Snaps, unused Flatpaks, package caches)
 ├── tracker/                 # Filesystem snapshot diffing and install watcher
-├── ui/                      # Iced 0.13 desktop application (WGPU backend)
-│   ├── app.rs               # Main GUI loop, async subscription receiver, and tab management
-│   ├── theme.rs             # Brand identity tokens (Deep Burgundy #38121C, Warm Cream #EDE5D2, Pistachio #9ECB82)
-│   └── views/               # Modal dialogs, dashboard table, optimizer, and audit views
+│   ├── snapshot.rs          # Directory tree capture and diff calculation
+│   └── mod.rs               # Watcher engine and manifest persistence
+├── ui/                      # Iced 0.14 desktop application (WGPU backend)
+│   ├── app.rs               # GUI state loop, view layouts, modal dialogs, and window setup
+│   ├── theme.rs             # Brand design tokens (Burgundy, Cream, Pistachio)
+│   └── mod.rs               # UI exports, sort and filter helpers, window icon accessor
 └── updater/                 # Self-updater querying GitHub Releases API
+    └── mod.rs               # Release download, atomic binary replacement, asset installation
 ```
 
 ---
@@ -98,8 +112,9 @@ The scanner queries package registries, container runtimes, and local directorie
 | [`src/scanner/native/pacman.rs`](src/scanner/native/pacman.rs) | `PacmanScanner` | Queries Arch Linux `pacman -Qi` for local packages. |
 | [`src/scanner/flatpak.rs`](src/scanner/flatpak.rs) | `FlatpakScanner` | Parses output from `flatpak list --app` and extracts versions, sizes, and IDs. |
 | [`src/scanner/snap.rs`](src/scanner/snap.rs) | `SnapScanner` | Inspects Snap revisions, publisher channels, and package status without blocking on missing daemon sockets. |
+| [`src/scanner/bottles.rs`](src/scanner/bottles.rs) | `BottlesScanner` | Scans Bottles Wine prefixes (`~/.var/app/com.usebottles.bottles/data/bottles/bottles`), parses YAML configuration, and detects Windows application payloads and launchers. |
 | [`src/scanner/appimage.rs`](src/scanner/appimage.rs) | `AppImageScanner` | Discovers standalone AppImages, verifies magic bytes, and provides desktop integration. |
-| [`src/scanner/manual.rs`](src/scanner/manual.rs) | `ManualScanner` | Scans `/opt`, standard user binary folders, and dynamic user-space `$PATH` directories (including `~/.pixi/bin`, `~/.spicetify`, `~/.cargo/bin`). Validates files against an extension blacklist, checks executable permissions, and enforces single-binary artifact scoping without touching user data or configuration directories. |
+| [`src/scanner/manual.rs`](src/scanner/manual.rs) | `ManualScanner` | Discovers standalone software across `/opt`, standard user binary locations (`~/.local/bin`, `~/.cargo/bin`, `~/Applications`, `~/bin`, `/usr/local/bin`), and dynamic user-space `$PATH` directories. Queries the user shell (`$SHELL -il`) and parses shell profile files (`~/.zshrc`, `~/.bashrc`, `~/.cargo/env`, `~/.profile`) to retrieve authentic development tools in GUI sessions without hardcoding specific application names. |
 | [`src/scanner/desktop_entry.rs`](src/scanner/desktop_entry.rs) | `DesktopEntryScanner` | Scans `~/.local/share/applications` and `/usr/share/applications`, extracting Exec commands, Categories, and icon paths. |
 | [`src/scanner/symlink_graph.rs`](src/scanner/symlink_graph.rs) | `SymlinkGraph` | Traces symlink graphs in `/usr/local/bin` and `~/.local/bin` to locate target binaries. |
 
@@ -122,8 +137,8 @@ graph TD
 | [`src/cleaner/safety.rs`](src/cleaner/safety.rs) | `SafetyValidator` | Validates target paths against protected system roots (`/`, `/usr`, `/etc`), base XDG folders (`~/.config`, `~/.cache`), and shared container repositories (`~/.local/share/flatpak`, `/var/lib/flatpak`, `/var/lib/snapd`, `/usr/bin/flatpak`). |
 | [`src/cleaner/heuristic.rs`](src/cleaner/heuristic.rs) | `ResidualCleaner` | Crawls app-specific folders. Enforces container isolation (`~/.var/app/<id>` for Flatpak, `~/snap/<name>` for Snap), evaluates direct dotdirs (`~/.<app>`), and filters out forbidden keywords (`flatpak`, `snap`, `systemd`, `usr`, `bin`). |
 | [`src/cleaner/signatures.rs`](src/cleaner/signatures.rs) | `ResidualSignatures` | Dictionary of known directory patterns for applications that place data across multiple non-standard paths (e.g. VS Code, Chrome, Firefox). |
-| [`src/cleaner/executor.rs`](src/cleaner/executor.rs) | `DeletionExecutor` | Removes files by moving them to the desktop Trash or by unlinking permanently upon explicit user confirmation. |
-| [`src/cleaner/system_sweep.rs`](src/cleaner/system_sweep.rs) | `SystemSweepEngine` | Cleans shared system bloat: removes disabled Snap revisions, runs `flatpak uninstall --unused`, and clears package manager caches. |
+| [`src/cleaner/executor.rs`](src/cleaner/executor.rs) | `DeletionExecutor` | Removes files by moving them to desktop Trash or unlinking permanently. For package purges (`ManualOpt`, `CustomDesktop`, `AppImage`), unlinks executables, launchers, and tracked artifacts, recording audit entries only upon successful deletion. |
+| [`src/cleaner/system_sweep.rs`](src/cleaner/system_sweep.rs) | `SystemSweepEngine` | Cleans shared system bloat: removes disabled Snap revisions, runs `flatpak uninstall --unused`, and clears package manager caches. Records cleaned paths and freed bytes directly into the audit history. |
 | [`src/cleaner/privilege.rs`](src/cleaner/privilege.rs) | `PrivilegeManager` | Manages root elevation requests via `pkexec` or `sudo` when working with system-level paths. |
 
 ---
@@ -145,24 +160,32 @@ Embedded SQLite storage for audit history and installation manifests.
 
 | File | Purpose |
 | :--- | :--- |
-| [`src/db/schema.rs`](src/db/schema.rs) | Manages tables: `install_manifests`, `manifest_files`, and `audit_logs`. |
-| [`src/db/repository.rs`](src/db/repository.rs) | Provides methods to store manifests, record uninstallation actions, and compute cumulative disk space recovered. |
+| [`src/db/schema.rs`](src/db/schema.rs) | Manages tables: `install_manifests`, `manifest_files`, and `audit_logs` (storing timestamp, package name, install method, freed bytes, and deleted file paths JSON). |
+| [`src/db/repository.rs`](src/db/repository.rs) | Provides methods to store manifests, record uninstallation actions with detailed file path lists, and compute cumulative disk space recovered. |
 
 ---
 
 ### 5. User Interface (`src/ui/`)
 
-Desktop interface built on the modern Rust GUI framework `Iced` (0.13) with hardware-accelerated WGPU backend, responsive layout primitives, custom capsule scrollbars, and a bespoke design system.
+Desktop interface built on Rust GUI framework `Iced` (0.14) with hardware-accelerated WGPU backend, responsive layout primitives, custom capsule scrollbars, and a bespoke design system.
 
-| File | View / Component | Responsibility |
+| File | Component / Area | Responsibility |
 | :--- | :--- | :--- |
-| [`src/ui/app.rs`](src/ui/app.rs) | `SweepXApp` | Main event loop, background Tokio channel receiver, and tab management. |
-| [`src/ui/theme.rs`](src/ui/theme.rs) | `Theme` | Brand design tokens (Deep Burgundy `#38121C` canvas/modals, Warm Cream `#EDE5D2` cards, Pistachio `#9ECB82` action elements), spacing, and widget styling rules. |
-| [`src/ui/views/dashboard.rs`](src/ui/views/dashboard.rs) | `DashboardView` | Application inventory table, packaging tier filter pills, search bar, and summary metric cards. |
-| [`src/ui/views/inspector.rs`](src/ui/views/inspector.rs) | `InspectorModal` | Detailed modal displaying installed application payload, discovered user files, and total combined footprint. |
-| [`src/ui/views/clean_modal.rs`](src/ui/views/clean_modal.rs) | `CleanModal` | Residual selection list, safety check summary, and uninstallation confirmation. |
-| [`src/ui/views/optimizer.rs`](src/ui/views/optimizer.rs) | `OptimizerView` | System bloat cleaner (old Snaps, unused Flatpak runtimes, package manager caches). |
-| [`src/ui/views/history.rs`](src/ui/views/history.rs) | `HistoryView` | Audit log timeline and lifetime storage recovery statistics. |
+| [`src/ui/app.rs`](src/ui/app.rs) | `SweepXApp` | Main application state loop, asynchronous Tokio channel receiver, window lifecycle, and modal stack. |
+| [`src/ui/theme.rs`](src/ui/theme.rs) | `Theme` | Brand design tokens (Deep Burgundy `#38121C` canvas and modals, Warm Cream `#EDE5D2` cards and text, Pistachio `#9ECB82` action elements), elevations, typography, and button styling. |
+| [`src/ui/mod.rs`](src/ui/mod.rs) | Exports & Helpers | Re-exports UI types, sorting and filtering dispatchers, and public in-memory window icon decoder `get_window_icon()`. |
+
+#### View Architecture (inside `src/ui/app.rs`):
+* `view_applications_dashboard`: Application inventory table, packaging tier filter pills, search input, sort column headers, and deterministic storage footprint summary cards derived strictly from package payloads.
+* `view_inspector_overlay`: Detailed inspection modal displaying installed application payload, discovered user residual files, and total combined footprint.
+* `view_clean_overlay`: Uninstallation checklist with a selectable primary package payload row, individual residual item checkboxes, safety validation summary, and permanent versus trash deletion modes.
+* `view_system_sweep`: System optimizer for disabled Snap revisions, unused Flatpak runtimes, and host package manager caches.
+* `view_audit_history`: Audit log timeline displaying uninstalled applications, timestamps, and lifetime storage recovery statistics.
+* `view_audit_inspector_overlay`: Searchable modal for inspecting the exact file paths deleted during past package purges or system sweeps, with one-click path copying.
+
+#### Window and Desktop Integration:
+* **Wayland & Overview Icon Tracking**: Window settings configure `platform_specific.application_id = "sweepx"` and supply an in-memory decoded 512x512 RGBA `Icon` buffer. Desktop entries define `StartupWMClass=sweepx` and `StartupNotify=true`, ensuring Wayland compositors (GNOME Mutter, KDE KWin) associate the window with the official brand icon.
+* **Unit System Discipline**: Implements `SizeUnitSystem` (IEC binary `GiB` default, SI decimal `GB`) with an interactive header toggle and pure total formatting function `format_size_with_unit`.
 
 For complete visual identity specifications, vector marks, and typography guidelines, see **[Brand Guidelines](assets/logo/BRAND_GUIDELINES.md)**.
 
@@ -174,7 +197,7 @@ Headless command-line interface for terminal workflows and scripts.
 
 | File | Purpose |
 | :--- | :--- |
-| [`src/cli/commands.rs`](src/cli/commands.rs) | Subcommands defined with `clap`: `list`, `inspect`, `clean`, `purge`, `sweep`, `watch`, `update`, and `history`. |
+| [`src/cli/commands.rs`](src/cli/commands.rs) | Subcommands defined with `clap`: `list`, `inspect`, `clean`, `purge`, `sweep`, `watch`, `update`, `history`, and `install-assets`. |
 | [`src/cli/mod.rs`](src/cli/mod.rs) | Command execution, terminal tables, JSON output mode, and progress indicators. |
 
 ---
@@ -183,7 +206,7 @@ Headless command-line interface for terminal workflows and scripts.
 
 | File | Purpose |
 | :--- | :--- |
-| [`src/updater/mod.rs`](src/updater/mod.rs) | Checks GitHub Releases for new versions, downloads assets, extracts tarballs, and atomically replaces the running binary. |
+| [`src/updater/mod.rs`](src/updater/mod.rs) | Checks GitHub Releases for new versions, downloads assets, extracts tarballs, and atomically replaces the running binary. Manages desktop launcher and icon assets (`install_assets_to`), writes scalable SVG icons, removes legacy raster PNGs, repairs broken user hicolor themes, and triggers safe desktop cache invalidations. |
 
 ---
 
@@ -204,7 +227,8 @@ sequenceDiagram
     par Concurrently query all tiers
         Orch->>PM: Scan native packages (dpkg / pacman / rpm)
         Orch->>PM: Scan Flatpak and Snap runtimes
-        Orch->>PM: Scan /opt, AppImages, and .desktop files
+        Orch->>PM: Scan Bottles Wine prefixes
+        Orch->>PM: Scan /opt, user binaries, AppImages, and .desktop files
     end
     PM-->>Orch: Return raw application records
     Orch-->>UI: Return unified, deduplicated application inventory
@@ -220,7 +244,7 @@ sequenceDiagram
         Clean-->>UI: Abort and return SafetyViolation error
     else Path is safe
         Clean->>PM: Move to Trash or unlink permanently
-        Clean->>DB: Record freed space in audit_logs
+        Clean->>DB: Record freed space and deleted paths in audit_logs
         Clean-->>UI: Return success and update space metrics
     end
 ```
