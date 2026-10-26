@@ -357,6 +357,24 @@ fn test_no_hardcoded_app_names_in_manual_scanner_source() {
     );
 }
 
+#[test]
+fn test_desktop_launcher_environment_discovers_user_shell_paths_without_hardcoding() {
+    use sweepx::scanner::manual::get_user_binary_scan_dirs;
+
+    let scan_dirs = get_user_binary_scan_dirs();
+    // System directories must be excluded
+    assert!(!scan_dirs.contains(&std::path::PathBuf::from("/usr/bin")));
+    assert!(!scan_dirs.contains(&std::path::PathBuf::from("/bin")));
+
+    // When running on this host, ~/.local/bin or user paths should be found
+    if let Some(home) = dirs::home_dir() {
+        let local_bin = home.join(".local/bin");
+        if local_bin.exists() {
+            assert!(scan_dirs.contains(&local_bin));
+        }
+    }
+}
+
 
 
 

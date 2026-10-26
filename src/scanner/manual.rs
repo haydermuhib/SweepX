@@ -334,9 +334,138 @@ fn find_candidate_binary_in_dir(dir: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Dynamically extracts user-space scan directories from standard locations and $PATH.
+/// Dynamically extracts user-space scan directories from standard locations, current $PATH,
+/// login shell environment, and user shell profile configurations without hardcoding.
 pub fn get_user_binary_scan_dirs() -> Vec<PathBuf> {
-    extract_user_binary_scan_dirs(std::env::var_os("PATH"))
+    let mut candidate_paths = Vec::new();
+
+    // 1. Ingest current process PATH
+    if let Some(p) = std::env::var_os("PATH") {
+        candidate_paths.push(p);
+    }
+
+    // 2. Query user login shell environment (essential when launched from GUI/desktop environments)
+    if let Some(shell_path) = resolve_user_login_shell_path() {
+        candidate_paths.push(shell_path);
+    }
+
+    // 3. Fallback: Parse standard user shell profiles directly (~/.zshrc, ~/.bashrc, ~/.profile, etc.)
+    if let Some(profile_paths) = extract_paths_from_user_shell_profiles() {
+        candidate_paths.push(profile_paths);
+    }
+
+    let mut scan_dirs = Vec::new();
+    let mut seen = HashSet::new();
+
+    for path_var in candidate_paths {
+        for dir in extract_user_binary_scan_dirs(Some(path_var)) {
+            if seen.insert(dir.clone()) {
+                scan_dirs.push(dir);
+            }
+        }
+    }
+
+    if scan_dirs.is_empty() {
+        extract_user_binary_scan_dirs(None)
+    } else {
+        scan_dirs
+    }
+}
+
+/// Queries the user's login shell for its exported $PATH.
+/// Desktop launchers (GNOME, KDE) spawn GUI applications with a minimal system PATH.
+/// Querying the login shell retrieves the user's authentic development environment.
+fn resolve_user_login_shell_path() -> Option<std::ffi::OsString> {
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| {
+        if Path::new("/bin/zsh").exists() {
+            "/bin/zsh".to_string()
+        } else if Path::new("/bin/bash").exists() {
+            "/bin/bash".to_string()
+        } else {
+            "/bin/sh".to_string()
+        }
+    });
+
+    // Execute login shell with sentinel markers to avoid parsing any terminal welcome banners
+    let output = std::process::Command::new(&shell)
+        .args(["-l", "-c", "printf '__SWEEPX_PATH__:%s:__SWEEPX_PATH__' \"$PATH\""])
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if let Some((_, rest)) = stdout.split_once("__SWEEPX_PATH__:") {
+            if let Some((path_val, _)) = rest.split_once(":__SWEEPX_PATH__") {
+                if !path_val.trim().is_empty() {
+                    return Some(std::ffi::OsString::from(path_val.trim()));
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Inspects standard user shell rc and profile files without hardcoding tool names.
+/// Parses assignments to PATH (e.g. export PATH="..." or PATH=...) to extract user directories.
+fn extract_paths_from_user_shell_profiles() -> Option<std::ffi::OsString> {
+    let home = dirs::home_dir()?;
+    let profile_candidates = [
+        home.join(".zshrc"),
+        home.join(".bashrc"),
+        home.join(".profile"),
+        home.join(".bash_profile"),
+        home.join(".config/fish/config.fish"),
+    ];
+
+    let mut discovered_dirs = Vec::new();
+    let mut seen = HashSet::new();
+
+    for profile_path in &profile_candidates {
+        if !profile_path.exists() {
+            continue;
+        }
+        if let Ok(content) = std::fs::read_to_string(profile_path) {
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with('#') || !trimmed.contains("PATH") {
+                    continue;
+                }
+                if !(trimmed.contains('=') || trimmed.contains("set -gx") || trimmed.contains("export")) {
+                    continue;
+                }
+
+                // Extract all path candidates in the assignment
+                for token in trimmed.split(|c: char| c.is_whitespace() || c == ':' || c == '"' || c == '\'') {
+                    let token = token.trim();
+                    if token.is_empty() || token == "$PATH" || token == "${PATH}" || token.starts_with('-') {
+                        continue;
+                    }
+                    let expanded = if let Some(stripped) = token.strip_prefix("~/") {
+                        home.join(stripped)
+                    } else if let Some(stripped) = token.strip_prefix("$HOME/") {
+                        home.join(stripped)
+                    } else if let Some(stripped) = token.strip_prefix("${HOME}/") {
+                        home.join(stripped)
+                    } else if token.starts_with('/') {
+                        PathBuf::from(token)
+                    } else {
+                        continue;
+                    };
+
+                    if expanded.is_dir() && seen.insert(expanded.clone()) {
+                        discovered_dirs.push(expanded);
+                    }
+                }
+            }
+        }
+    }
+
+    if discovered_dirs.is_empty() {
+        None
+    } else {
+        std::env::join_paths(discovered_dirs).ok()
+    }
 }
 
 /// Helper function to parse user-space binary directories from an optional PATH OsString without hardcoding.
