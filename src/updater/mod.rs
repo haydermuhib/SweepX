@@ -368,7 +368,8 @@ pub fn install_assets_to(home: &std::path::Path) -> Result<(), String> {
          Icon={}\n\
          Categories=System;Utility;Settings;\n\
          Terminal=false\n\
-         StartupNotify=true\n",
+         StartupNotify=true\n\
+         StartupWMClass=sweepx\n",
         bin_path.display(),
         icon_path.display()
     );

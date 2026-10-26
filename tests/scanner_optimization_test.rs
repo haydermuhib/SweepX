@@ -372,6 +372,10 @@ fn test_desktop_launcher_environment_discovers_user_shell_paths_without_hardcodi
         if local_bin.exists() {
             assert!(scan_dirs.contains(&local_bin));
         }
+        let cargo_bin = home.join(".cargo/bin");
+        if cargo_bin.exists() {
+            assert!(scan_dirs.contains(&cargo_bin), "Cargo bin directory must be discovered");
+        }
     }
 }
 

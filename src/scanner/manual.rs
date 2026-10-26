@@ -372,9 +372,9 @@ pub fn get_user_binary_scan_dirs() -> Vec<PathBuf> {
     }
 }
 
-/// Queries the user's login shell for its exported $PATH.
+/// Queries the user's login or interactive shell for its exported $PATH.
 /// Desktop launchers (GNOME, KDE) spawn GUI applications with a minimal system PATH.
-/// Querying the login shell retrieves the user's authentic development environment.
+/// Querying the shell retrieves the user's authentic development environment.
 fn resolve_user_login_shell_path() -> Option<std::ffi::OsString> {
     let shell = std::env::var("SHELL").unwrap_or_else(|_| {
         if Path::new("/bin/zsh").exists() {
@@ -386,18 +386,22 @@ fn resolve_user_login_shell_path() -> Option<std::ffi::OsString> {
         }
     });
 
-    // Execute login shell with sentinel markers to avoid parsing any terminal welcome banners
-    let output = std::process::Command::new(&shell)
-        .args(["-l", "-c", "printf '__SWEEPX_PATH__:%s:__SWEEPX_PATH__' \"$PATH\""])
-        .output()
-        .ok()?;
+    let try_args = [
+        vec!["-il", "-c", "printf '__SWEEPX_PATH__:%s:__SWEEPX_PATH__' \"$PATH\""],
+        vec!["-l", "-c", "printf '__SWEEPX_PATH__:%s:__SWEEPX_PATH__' \"$PATH\""],
+    ];
 
-    if output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        if let Some((_, rest)) = stdout.split_once("__SWEEPX_PATH__:") {
-            if let Some((path_val, _)) = rest.split_once(":__SWEEPX_PATH__") {
-                if !path_val.trim().is_empty() {
-                    return Some(std::ffi::OsString::from(path_val.trim()));
+    for args in &try_args {
+        if let Ok(output) = std::process::Command::new(&shell).args(args).output() {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if let Some((_, rest)) = stdout.split_once("__SWEEPX_PATH__:") {
+                    if let Some((path_val, _)) = rest.split_once(":__SWEEPX_PATH__") {
+                        let trimmed = path_val.trim();
+                        if !trimmed.is_empty() {
+                            return Some(std::ffi::OsString::from(trimmed));
+                        }
+                    }
                 }
             }
         }
@@ -406,8 +410,46 @@ fn resolve_user_login_shell_path() -> Option<std::ffi::OsString> {
     None
 }
 
+/// Helper to parse directory paths from PATH assignment statements.
+fn parse_tokens_for_paths(
+    line: &str,
+    home: &Path,
+    seen: &mut HashSet<PathBuf>,
+    discovered_dirs: &mut Vec<PathBuf>,
+) {
+    let trimmed = line.trim();
+    if trimmed.starts_with('#') || !trimmed.contains("PATH") {
+        return;
+    }
+    if !(trimmed.contains('=') || trimmed.contains("set -gx") || trimmed.contains("export")) {
+        return;
+    }
+
+    for token in trimmed.split(|c: char| c.is_whitespace() || c == ':' || c == '"' || c == '\'') {
+        let token = token.trim();
+        if token.is_empty() || token == "$PATH" || token == "${PATH}" || token.starts_with('-') {
+            continue;
+        }
+        let expanded = if let Some(stripped) = token.strip_prefix("~/") {
+            home.join(stripped)
+        } else if let Some(stripped) = token.strip_prefix("$HOME/") {
+            home.join(stripped)
+        } else if let Some(stripped) = token.strip_prefix("${HOME}/") {
+            home.join(stripped)
+        } else if token.starts_with('/') {
+            PathBuf::from(token)
+        } else {
+            continue;
+        };
+
+        if expanded.is_dir() && seen.insert(expanded.clone()) {
+            discovered_dirs.push(expanded);
+        }
+    }
+}
+
 /// Inspects standard user shell rc and profile files without hardcoding tool names.
-/// Parses assignments to PATH (e.g. export PATH="..." or PATH=...) to extract user directories.
+/// Parses assignments to PATH (e.g. export PATH="..." or PATH=...) and sourced environment scripts.
 fn extract_paths_from_user_shell_profiles() -> Option<std::ffi::OsString> {
     let home = dirs::home_dir()?;
     let profile_candidates = [
@@ -415,6 +457,7 @@ fn extract_paths_from_user_shell_profiles() -> Option<std::ffi::OsString> {
         home.join(".bashrc"),
         home.join(".profile"),
         home.join(".bash_profile"),
+        home.join(".cargo/env"),
         home.join(".config/fish/config.fish"),
     ];
 
@@ -428,35 +471,39 @@ fn extract_paths_from_user_shell_profiles() -> Option<std::ffi::OsString> {
         if let Ok(content) = std::fs::read_to_string(profile_path) {
             for line in content.lines() {
                 let trimmed = line.trim();
-                if trimmed.starts_with('#') || !trimmed.contains("PATH") {
-                    continue;
-                }
-                if !(trimmed.contains('=') || trimmed.contains("set -gx") || trimmed.contains("export")) {
+                if trimmed.starts_with('#') {
                     continue;
                 }
 
-                // Extract all path candidates in the assignment
-                for token in trimmed.split(|c: char| c.is_whitespace() || c == ':' || c == '"' || c == '\'') {
-                    let token = token.trim();
-                    if token.is_empty() || token == "$PATH" || token == "${PATH}" || token.starts_with('-') {
-                        continue;
-                    }
-                    let expanded = if let Some(stripped) = token.strip_prefix("~/") {
-                        home.join(stripped)
-                    } else if let Some(stripped) = token.strip_prefix("$HOME/") {
-                        home.join(stripped)
-                    } else if let Some(stripped) = token.strip_prefix("${HOME}/") {
-                        home.join(stripped)
-                    } else if token.starts_with('/') {
-                        PathBuf::from(token)
-                    } else {
-                        continue;
-                    };
+                // Parse nested sourced scripts (e.g. source "$HOME/.cargo/env" or . ~/.cargo/env)
+                if trimmed.starts_with("source ") || trimmed.starts_with(". ") {
+                    let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                    if parts.len() >= 2 {
+                        let token = parts[1].trim_matches('"').trim_matches('\'');
+                        let expanded = if let Some(stripped) = token.strip_prefix("~/") {
+                            home.join(stripped)
+                        } else if let Some(stripped) = token.strip_prefix("$HOME/") {
+                            home.join(stripped)
+                        } else if let Some(stripped) = token.strip_prefix("${HOME}/") {
+                            home.join(stripped)
+                        } else if token.starts_with('/') {
+                            PathBuf::from(token)
+                        } else {
+                            continue;
+                        };
 
-                    if expanded.is_dir() && seen.insert(expanded.clone()) {
-                        discovered_dirs.push(expanded);
+                        if expanded.is_file() {
+                            if let Ok(sourced_content) = std::fs::read_to_string(&expanded) {
+                                for sline in sourced_content.lines() {
+                                    parse_tokens_for_paths(sline, &home, &mut seen, &mut discovered_dirs);
+                                }
+                            }
+                        }
                     }
+                    continue;
                 }
+
+                parse_tokens_for_paths(trimmed, &home, &mut seen, &mut discovered_dirs);
             }
         }
     }
@@ -475,12 +522,23 @@ pub fn extract_user_binary_scan_dirs(path_var: Option<std::ffi::OsString>) -> Ve
 
     let home = dirs::home_dir();
 
-    // 1. Standard user binary locations
+    // 1. Standard user binary and toolchain locations
     if let Some(ref h) = home {
-        for standard in &[h.join(".local/bin"), h.join("Applications"), h.join("bin")] {
+        for standard in &[
+            h.join(".local/bin"),
+            h.join(".cargo/bin"),
+            h.join("Applications"),
+            h.join("bin"),
+        ] {
             if standard.exists() && seen.insert(standard.clone()) {
                 scan_dirs.push(standard.clone());
             }
+        }
+    }
+    if let Ok(cargo_home) = std::env::var("CARGO_HOME") {
+        let cargo_bin = PathBuf::from(cargo_home).join("bin");
+        if cargo_bin.exists() && seen.insert(cargo_bin.clone()) {
+            scan_dirs.push(cargo_bin);
         }
     }
     let usr_local = PathBuf::from("/usr/local/bin");

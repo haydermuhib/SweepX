@@ -99,6 +99,7 @@ fn test_install_assets_to_refreshes_branding_and_cleans_legacy_pngs() {
     assert!(desktop_content.contains("[Desktop Entry]"));
     assert!(desktop_content.contains("Name=SweepX"));
     assert!(desktop_content.contains("Icon="));
+    assert!(desktop_content.contains("StartupWMClass=sweepx"));
 }
 
 

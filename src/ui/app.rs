@@ -2013,6 +2013,13 @@ impl SweepXApp {
     }
 }
 
+fn get_window_icon() -> Option<iced::window::Icon> {
+    const ICON_BYTES: &[u8] = include_bytes!("../../assets/icons/sweepx.png");
+    let img = image::load_from_memory(ICON_BYTES).ok()?.to_rgba8();
+    let (width, height) = img.dimensions();
+    iced::window::icon::from_rgba(img.into_raw(), width, height).ok()
+}
+
 pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
     // Ensure application icons and desktop entry reflect the current official branding
     let _ = crate::updater::update_installed_assets();
@@ -2022,6 +2029,12 @@ pub fn run_gui() -> Result<(), Box<dyn std::error::Error>> {
         .window(iced::window::Settings {
             size: iced::Size::new(1150.0, 750.0),
             min_size: Some(iced::Size::new(900.0, 600.0)),
+            icon: get_window_icon(),
+            #[cfg(target_os = "linux")]
+            platform_specific: iced::window::settings::PlatformSpecific {
+                application_id: "sweepx".to_string(),
+                ..Default::default()
+            },
             ..Default::default()
         })
         .run()?;

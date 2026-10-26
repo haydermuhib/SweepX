@@ -410,6 +410,7 @@ Icon=$ICONS_DIR/sweepx.svg
 Categories=System;Utility;Settings;
 Terminal=false
 StartupNotify=true
+StartupWMClass=sweepx
 EOF
     chmod +x '$APPS_DIR/sweepx.desktop'
     rm -f '$HOME/Desktop/sweepx.desktop' 2>/dev/null || true
