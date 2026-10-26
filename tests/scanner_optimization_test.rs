@@ -379,6 +379,81 @@ fn test_desktop_launcher_environment_discovers_user_shell_paths_without_hardcodi
     }
 }
 
+#[test]
+fn test_expand_home_path_expands_tokens_and_rejects_relative() {
+    use sweepx::scanner::manual::expand_home_path;
+    let home = std::path::Path::new("/fake/home");
+
+    // Valid home expansions
+    assert_eq!(
+        expand_home_path("~/.local/bin", home),
+        Some(std::path::PathBuf::from("/fake/home/.local/bin"))
+    );
+    assert_eq!(
+        expand_home_path("$HOME/.cargo/bin", home),
+        Some(std::path::PathBuf::from("/fake/home/.cargo/bin"))
+    );
+    assert_eq!(
+        expand_home_path("${HOME}/bin", home),
+        Some(std::path::PathBuf::from("/fake/home/bin"))
+    );
+    assert_eq!(
+        expand_home_path("/usr/local/bin", home),
+        Some(std::path::PathBuf::from("/usr/local/bin"))
+    );
+
+    // Relative or invalid paths are rejected
+    assert_eq!(expand_home_path("relative/path", home), None);
+    assert_eq!(expand_home_path("$PATH", home), None);
+    assert_eq!(expand_home_path("-option", home), None);
+}
+
+#[test]
+fn test_extract_paths_from_profile_files_at_parses_nested_sourced_scripts() {
+    use sweepx::scanner::manual::extract_paths_from_profile_files_at;
+    let temp_dir = tempfile::tempdir().expect("create temp dir");
+    let home = temp_dir.path();
+
+    // 1. Create real directories to simulate user tool installations
+    let cargo_bin = home.join(".cargo/bin");
+    let pixi_bin = home.join(".pixi/bin");
+    let custom_bin = home.join(".custom_tool/bin");
+    std::fs::create_dir_all(&cargo_bin).unwrap();
+    std::fs::create_dir_all(&pixi_bin).unwrap();
+    std::fs::create_dir_all(&custom_bin).unwrap();
+
+    // 2. Create nested sourced environment script ~/.cargo/env
+    let cargo_env = home.join(".cargo/env");
+    std::fs::write(&cargo_env, "export PATH=\"$HOME/.cargo/bin:${PATH}\"\n").unwrap();
+
+    // 3. Create another sourced script
+    let custom_env = home.join(".custom_env");
+    std::fs::write(&custom_env, "export PATH=\"$HOME/.custom_tool/bin:$PATH\"\n").unwrap();
+
+    // 4. Create ~/.zshrc referencing both sourced scripts and direct PATH assignments
+    let zshrc = home.join(".zshrc");
+    let zshrc_content = format!(
+        "# Shell startup comment\n\
+         source \"{}\"\n\
+         . \"{}\"\n\
+         export PATH=\"$HOME/.pixi/bin:$PATH\"\n\
+         # Irrelevant command\n\
+         echo 'hello'\n",
+        cargo_env.display(),
+        custom_env.display()
+    );
+    std::fs::write(&zshrc, zshrc_content).unwrap();
+
+    // 5. Run profile extraction
+    let os_paths = extract_paths_from_profile_files_at(home)
+        .expect("Should discover paths from profile and nested scripts");
+
+    let split_paths: Vec<std::path::PathBuf> = std::env::split_paths(&os_paths).collect();
+    assert!(split_paths.contains(&cargo_bin), "Must discover ~/.cargo/bin via nested sourced script");
+    assert!(split_paths.contains(&custom_bin), "Must discover ~/.custom_tool/bin via dotted source");
+    assert!(split_paths.contains(&pixi_bin), "Must discover ~/.pixi/bin via direct PATH assignment");
+}
+
 
 
 

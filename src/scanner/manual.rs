@@ -410,6 +410,21 @@ fn resolve_user_login_shell_path() -> Option<std::ffi::OsString> {
     None
 }
 
+/// Expands leading ~, $HOME, or ${HOME} in a path token relative to a base home directory.
+pub fn expand_home_path(token: &str, home: &Path) -> Option<PathBuf> {
+    if let Some(stripped) = token.strip_prefix("~/") {
+        Some(home.join(stripped))
+    } else if let Some(stripped) = token.strip_prefix("$HOME/") {
+        Some(home.join(stripped))
+    } else if let Some(stripped) = token.strip_prefix("${HOME}/") {
+        Some(home.join(stripped))
+    } else if token.starts_with('/') {
+        Some(PathBuf::from(token))
+    } else {
+        None
+    }
+}
+
 /// Helper to parse directory paths from PATH assignment statements.
 fn parse_tokens_for_paths(
     line: &str,
@@ -430,28 +445,17 @@ fn parse_tokens_for_paths(
         if token.is_empty() || token == "$PATH" || token == "${PATH}" || token.starts_with('-') {
             continue;
         }
-        let expanded = if let Some(stripped) = token.strip_prefix("~/") {
-            home.join(stripped)
-        } else if let Some(stripped) = token.strip_prefix("$HOME/") {
-            home.join(stripped)
-        } else if let Some(stripped) = token.strip_prefix("${HOME}/") {
-            home.join(stripped)
-        } else if token.starts_with('/') {
-            PathBuf::from(token)
-        } else {
-            continue;
-        };
 
-        if expanded.is_dir() && seen.insert(expanded.clone()) {
-            discovered_dirs.push(expanded);
+        if let Some(expanded) = expand_home_path(token, home) {
+            if expanded.is_dir() && seen.insert(expanded.clone()) {
+                discovered_dirs.push(expanded);
+            }
         }
     }
 }
 
-/// Inspects standard user shell rc and profile files without hardcoding tool names.
-/// Parses assignments to PATH (e.g. export PATH="..." or PATH=...) and sourced environment scripts.
-fn extract_paths_from_user_shell_profiles() -> Option<std::ffi::OsString> {
-    let home = dirs::home_dir()?;
+/// Inspects user shell rc, profile, and sourced environment files relative to a home directory.
+pub fn extract_paths_from_profile_files_at(home: &Path) -> Option<std::ffi::OsString> {
     let profile_candidates = [
         home.join(".zshrc"),
         home.join(".bashrc"),
@@ -480,22 +484,12 @@ fn extract_paths_from_user_shell_profiles() -> Option<std::ffi::OsString> {
                     let parts: Vec<&str> = trimmed.split_whitespace().collect();
                     if parts.len() >= 2 {
                         let token = parts[1].trim_matches('"').trim_matches('\'');
-                        let expanded = if let Some(stripped) = token.strip_prefix("~/") {
-                            home.join(stripped)
-                        } else if let Some(stripped) = token.strip_prefix("$HOME/") {
-                            home.join(stripped)
-                        } else if let Some(stripped) = token.strip_prefix("${HOME}/") {
-                            home.join(stripped)
-                        } else if token.starts_with('/') {
-                            PathBuf::from(token)
-                        } else {
-                            continue;
-                        };
-
-                        if expanded.is_file() {
-                            if let Ok(sourced_content) = std::fs::read_to_string(&expanded) {
-                                for sline in sourced_content.lines() {
-                                    parse_tokens_for_paths(sline, &home, &mut seen, &mut discovered_dirs);
+                        if let Some(expanded) = expand_home_path(token, home) {
+                            if expanded.is_file() {
+                                if let Ok(sourced_content) = std::fs::read_to_string(&expanded) {
+                                    for sline in sourced_content.lines() {
+                                        parse_tokens_for_paths(sline, home, &mut seen, &mut discovered_dirs);
+                                    }
                                 }
                             }
                         }
@@ -503,7 +497,7 @@ fn extract_paths_from_user_shell_profiles() -> Option<std::ffi::OsString> {
                     continue;
                 }
 
-                parse_tokens_for_paths(trimmed, &home, &mut seen, &mut discovered_dirs);
+                parse_tokens_for_paths(trimmed, home, &mut seen, &mut discovered_dirs);
             }
         }
     }
@@ -513,6 +507,13 @@ fn extract_paths_from_user_shell_profiles() -> Option<std::ffi::OsString> {
     } else {
         std::env::join_paths(discovered_dirs).ok()
     }
+}
+
+/// Inspects standard user shell rc and profile files without hardcoding tool names.
+/// Parses assignments to PATH (e.g. export PATH="..." or PATH=...) and sourced environment scripts.
+fn extract_paths_from_user_shell_profiles() -> Option<std::ffi::OsString> {
+    let home = dirs::home_dir()?;
+    extract_paths_from_profile_files_at(&home)
 }
 
 /// Helper function to parse user-space binary directories from an optional PATH OsString without hardcoding.

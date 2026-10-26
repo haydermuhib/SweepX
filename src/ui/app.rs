@@ -2013,7 +2013,7 @@ impl SweepXApp {
     }
 }
 
-fn get_window_icon() -> Option<iced::window::Icon> {
+pub fn get_window_icon() -> Option<iced::window::Icon> {
     const ICON_BYTES: &[u8] = include_bytes!("../../assets/icons/sweepx.png");
     let img = image::load_from_memory(ICON_BYTES).ok()?.to_rgba8();
     let (width, height) = img.dimensions();

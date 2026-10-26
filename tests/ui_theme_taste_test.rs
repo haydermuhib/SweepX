@@ -328,3 +328,18 @@ fn test_badge_elements_construct_without_panic() {
     let _custom: iced::Element<'_, ()> = Theme::badge_by_label("Manual (/opt)");
 }
 
+#[test]
+fn test_window_icon_loads_with_correct_dimensions_and_channels() {
+    let icon_opt = sweepx::ui::get_window_icon();
+    assert!(icon_opt.is_some(), "Window icon must decode successfully from embedded asset");
+    let icon = icon_opt.unwrap();
+    let (pixels, size) = icon.into_raw();
+    assert_eq!(size.width, 512, "Window icon width must be 512px");
+    assert_eq!(size.height, 512, "Window icon height must be 512px");
+    assert_eq!(pixels.len(), 512 * 512 * 4, "Pixel buffer must be 32bpp RGBA");
+
+    // Verify non-zero alpha and non-empty content
+    let has_non_transparent_pixels = pixels.chunks_exact(4).any(|p| p[3] > 0);
+    assert!(has_non_transparent_pixels, "Window icon must contain visible non-transparent pixels");
+}
+
